@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 
 from cryptography.fernet import Fernet, InvalidToken
+from mcp.client.auth import TokenStorage
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.db import SessionLocal
 from app.models import User
 
 
@@ -26,11 +32,72 @@ def decrypt_token(ciphertext: str) -> str:
 
 
 def link_robinhood(db: Session, user: User, access_token: str, refresh_token: str | None) -> None:
-    user.rh_access_token_enc = encrypt_token(access_token)
-    user.rh_refresh_token_enc = encrypt_token(refresh_token) if refresh_token else None
+    """Manual link path (API): store a minimal token blob from raw access/refresh strings."""
+    token = OAuthToken(access_token=access_token, refresh_token=refresh_token)
+    user.rh_oauth_token_enc = encrypt_token(token.model_dump_json())
     user.robinhood_linked = True
     db.commit()
 
 
 def get_robinhood_access_token(user: User) -> str | None:
-    return decrypt_token(user.rh_access_token_enc) if user.rh_access_token_enc else None
+    blob = user.rh_oauth_token_enc
+    return OAuthToken.model_validate_json(decrypt_token(blob)).access_token if blob else None
+
+
+# ---- Primary OAuth token storage: encrypted, per-user, in Postgres ----------
+class DbTokenStorage(TokenStorage):
+    """The MCP OAuthClientProvider's storage backend, bound to one User row.
+
+    This is the PRIMARY storage everywhere — API, scripts, cron. The provider owns
+    the timing and calls these four methods itself (on connect, on 401, on refresh);
+    each one reads/writes Fernet ciphertext on `self.user`. We never call the provider's
+    token logic directly, which is why this must be an object implementing the interface
+    rather than loose function calls.
+    """
+
+    def __init__(self, db: Session, user: User) -> None:
+        self.db = db
+        self.user = user
+
+    async def get_tokens(self) -> OAuthToken | None:
+        blob = self.user.rh_oauth_token_enc
+        return OAuthToken.model_validate_json(decrypt_token(blob)) if blob else None
+
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        # Store the full token blob (access + refresh + expires_in/scope) as the source of truth.
+        self.user.rh_oauth_token_enc = encrypt_token(tokens.model_dump_json())
+        self.user.robinhood_linked = True
+        self.db.commit()
+
+    async def get_client_info(self) -> OAuthClientInformationFull | None:
+        blob = self.user.rh_oauth_client_enc
+        return OAuthClientInformationFull.model_validate_json(decrypt_token(blob)) if blob else None
+
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        self.user.rh_oauth_client_enc = encrypt_token(client_info.model_dump_json())
+        self.db.commit()
+
+
+# Dev-script identity: scripts have no Clerk request context, so they act as the local
+# owner. In prod the API binds DbTokenStorage to the authenticated request's User instead.
+OWNER_CLERK_ID = "local-owner"
+
+
+def get_or_create_owner(db: Session) -> User:
+    user = db.scalars(select(User).where(User.role == "owner")).first()
+    if user is None:
+        user = User(clerk_user_id=OWNER_CLERK_ID, role="owner")
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    return user
+
+
+@contextmanager
+def owner_token_storage() -> Iterator[DbTokenStorage]:
+    """DbTokenStorage for the local owner, with a managed DB session. For scripts/cron."""
+    db = SessionLocal()
+    try:
+        yield DbTokenStorage(db, get_or_create_owner(db))
+    finally:
+        db.close()

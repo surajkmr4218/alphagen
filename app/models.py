@@ -161,9 +161,11 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), default="public")  # "owner" | "public"
 
     robinhood_linked: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Fernet ciphertext — never plaintext
-    rh_access_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
-    rh_refresh_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Full OAuth blobs (Fernet ciphertext — never plaintext), round-tripped by DbTokenStorage.
+    # The token blob is the whole OAuthToken (access + refresh + expires_in/scope/token_type).
+    rh_oauth_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The client blob is the dynamic-client-registration record so a fresh process skips re-reg.
+    rh_oauth_client_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
