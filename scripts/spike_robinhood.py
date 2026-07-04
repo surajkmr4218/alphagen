@@ -7,10 +7,13 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, TokenStorage
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+
+from app.security import owner_token_storage
 
 MCP_URL = "https://agent.robinhood.com/mcp/trading"
 
@@ -120,58 +123,64 @@ async def callback_handler() -> tuple[str, str | None]:
 
 
 async def main() -> None:
-    storage = FileTokenStorage()
+    # PRIMARY storage is now the encrypted per-user DB row (DbTokenStorage), same as prod.
+    with owner_token_storage() as storage:
+        # Observability for the gating question: announce whether we START with a token.
+        existing = await storage.get_tokens()
+        if existing is not None:
+            print("[run #2 indicator] Found a persisted token in the DB — "
+                  "if this run does NOT re-prompt, that's evidence for PATH A.")
+        else:
+            print("[run #1 indicator] No persisted token in the DB yet — "
+                  "expect a browser auth prompt now.")
 
-    # Observability for the gating question: announce whether we START with a token.
-    existing = await storage.get_tokens()
-    if existing is not None:
-        print(f"[run #2 indicator] Found a persisted token in {TOKEN_PATH} — "
-              "if this run does NOT re-prompt, that's evidence for PATH A.")
-    else:
-        print(f"[run #1 indicator] No persisted token in {TOKEN_PATH} yet — "
-              "expect a browser auth prompt now.")
+        client_metadata = OAuthClientMetadata(
+            client_name="AlphaGen Spike",
+            redirect_uris=[REDIRECT_URI],
+            grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"],
+            token_endpoint_auth_method="none",  # public client (no secret); needs DCR support
+        )
 
-    client_metadata = OAuthClientMetadata(
-        client_name="AlphaGen Spike",
-        redirect_uris=[REDIRECT_URI],
-        grant_types=["authorization_code", "refresh_token"],
-        response_types=["code"],
-        token_endpoint_auth_method="none",  # public client (no secret); needs DCR support
-    )
+        auth = OAuthClientProvider(
+            server_url=MCP_URL,
+            client_metadata=client_metadata,
+            storage=storage,
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
 
-    auth = OAuthClientProvider(
-        server_url=MCP_URL,
-        client_metadata=client_metadata,
-        storage=storage,
-        redirect_handler=redirect_handler,
-        callback_handler=callback_handler,
-    )
+        async with httpx.AsyncClient(
+            auth=auth,
+            follow_redirects=True,
+            timeout=httpx.Timeout(30.0, read=300.0),
+        ) as http_client:
+            async with streamable_http_client(MCP_URL, http_client=http_client) as (read, write, _):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
 
-    async with streamablehttp_client(MCP_URL, auth=auth) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
+                    tools = await session.list_tools()
+                    names = [t.name for t in tools.tools]
+                    print(f"\nconnected. {len(names)} tools:")
+                    for n in sorted(names):
+                        print(f"  - {n}")
 
-            tools = await session.list_tools()
-            names = [t.name for t in tools.tools]
-            print(f"\nconnected. {len(names)} tools:")
-            for n in sorted(names):
-                print(f"  - {n}")
+                    # find the order-placing tool and dump its schema verbatim
+                    order_tool = next(
+                        (t for t in tools.tools if "order" in t.name.lower()
+                         and "place" in t.name.lower()),
+                        None,
+                    )
+                    if order_tool is None:
+                        order_tool = next(
+                            (t for t in tools.tools if "order" in t.name.lower()), None)
 
-            # find the order-placing tool and dump its schema verbatim
-            order_tool = next(
-                (t for t in tools.tools if "order" in t.name.lower()
-                 and "place" in t.name.lower()),
-                None,
-            )
-            if order_tool is None:
-                order_tool = next((t for t in tools.tools if "order" in t.name.lower()), None)
-
-            if order_tool is not None:
-                print(f"\nORDER TOOL: {order_tool.name}")
-                print("inputSchema:")
-                print(json.dumps(order_tool.inputSchema, indent=2))
-            else:
-                print("\nNO order tool found — inspect the full list above.")
+                    if order_tool is not None:
+                        print(f"\nORDER TOOL: {order_tool.name}")
+                        print("inputSchema:")
+                        print(json.dumps(order_tool.inputSchema, indent=2))
+                    else:
+                        print("\nNO order tool found — inspect the full list above.")
 
 
 if __name__ == "__main__":
