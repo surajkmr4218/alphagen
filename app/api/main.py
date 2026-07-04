@@ -9,11 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import jwt
 from jose.exceptions import JWTError
 from pydantic import BaseModel
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db import SessionLocal
+from app.db import session_scope
 from app.models import User, execution_enabled_for
 from app.security import link_robinhood
 
@@ -53,16 +52,10 @@ def current_user_id(authorization: str = Header(default="")) -> str:
     return _verify_clerk_jwt(authorization.removeprefix("Bearer "))
 
 def get_db(clerk_user_id: str = Depends(current_user_id)) -> Iterator[Session]:
-    db = SessionLocal()
-    try:
-        # set_config parameterizes the sub (no SQL injection); false = session-scoped
-        db.execute(text("SELECT set_config('app.user_id', :uid, false)"), {"uid": clerk_user_id})
+    # session_scope sets the RLS GUC (app.user_id) to the same clerk_user_id that
+    # write_decision stamps into the user_id column — one tenant key, set on every session.
+    with session_scope(clerk_user_id) as db:
         yield db
-    finally:
-        # reset so a pooled connection doesn't bleed this user's id to the next request
-        db.execute(text("SELECT set_config('app.user_id', '', false)"))
-        db.commit()
-        db.close()
 
 def current_user(
     clerk_user_id: str = Depends(current_user_id), db: Session = Depends(get_db)

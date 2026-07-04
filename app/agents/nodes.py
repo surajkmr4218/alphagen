@@ -147,7 +147,7 @@ def guardrail_node(state: TradeState) -> dict:
     write the full result (passed + every rule) back to state. Never raises on a 'bad' trade —
     a blocked trade is a NORMAL outcome that gets logged, not an error. The DB write happens in
     log_node (which also runs on the critic-reject path), not here."""
-    from app.db import SessionLocal
+    from app.db import session_scope
 
     h = state.get("hypothesis") or {}
     evidence = state.get("evidence") or {}
@@ -155,11 +155,9 @@ def guardrail_node(state: TradeState) -> dict:
         return {"guardrail": {"passed": False,
                               "results": [{"rule": "schema", "passed": False,
                                            "severity": "hard", "reason": "no hypothesis"}]}}
-    db = SessionLocal()
-    try:
+    # _account_snapshot reads Order (an RLS tenant table), so the GUC must be set here too.
+    with session_scope(state.get("clerk_user_id")) as db:
         account = _account_snapshot(db, state["ticker"])
-    finally:
-        db.close()
     result = validate(h, account, date.today(), evidence, guardrail_cfg())
     return {"guardrail": result}
 
@@ -170,11 +168,11 @@ def log_node(state: TradeState) -> dict:
     after critic (reject path), so `state` may have no guardrail; write_decision handles that
     (passed=False, no Order). Runs before the execute interrupt."""
     from app.agents.logging import write_decision
-    from app.db import SessionLocal
+    from app.db import session_scope
 
-    db = SessionLocal()
-    try:
-        write_decision(db, state, user_id="owner")
-    finally:
-        db.close()
+    # The write session carries the same clerk_user_id in the RLS GUC that we stamp into
+    # the user_id column, so the row the policy sees and the row we write agree.
+    clerk_user_id = state["clerk_user_id"]
+    with session_scope(clerk_user_id) as db:
+        write_decision(db, state, user_id=clerk_user_id)
     return {}
