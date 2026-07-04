@@ -5,6 +5,7 @@ from typing import Literal, TypedDict
 
 class TradeState(TypedDict, total=False):
     # --- inputs (set by the caller before invoke) ---
+    clerk_user_id: str
     ticker: str
     query: str                       # analyst question driving retrieval; build_diff_bundle
                                      # falls back to DEFAULT_QUERY when absent
