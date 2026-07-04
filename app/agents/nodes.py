@@ -132,22 +132,13 @@ def critic_node(state: TradeState) -> dict:
         verdict.setdefault("reasons", []).append("Fabricated citation(s) not in evidence.")
     return {"critic_verdict": verdict}
 
-def _account_snapshot(db, ticker: str) -> dict:
-    """Pull the deterministic account facts validate() needs. In Week 7 this reads the broker;
-    for now it reads our own Order/Outcome rows so the backtest and live path share one shape."""
-    from app.models import Order
-
-    deployed = db.query(Order).filter(Order.status == "filled").count() and 0.0 or 0.0
-    # NOTE: real deployed/pnl come from positions in Week 7; here we expose the shape.
-    return {"ticker": ticker, "deployed": deployed, "trades_today": 0, "pnl_today": 0.0}
-
-
 def guardrail_node(state: TradeState) -> dict:
     """Read hypothesis + evidence from state, fetch account/today/cfg, run the pure validator,
     write the full result (passed + every rule) back to state. Never raises on a 'bad' trade —
     a blocked trade is a NORMAL outcome that gets logged, not an error. The DB write happens in
     log_node (which also runs on the critic-reject path), not here."""
     from app.db import session_scope
+    from app.execution.dal import ExecutionRepo
 
     h = state.get("hypothesis") or {}
     evidence = state.get("evidence") or {}
@@ -155,9 +146,9 @@ def guardrail_node(state: TradeState) -> dict:
         return {"guardrail": {"passed": False,
                               "results": [{"rule": "schema", "passed": False,
                                            "severity": "hard", "reason": "no hypothesis"}]}}
-    # _account_snapshot reads Order (an RLS tenant table), so the GUC must be set here too.
-    with session_scope(state.get("clerk_user_id")) as db:
-        account = _account_snapshot(db, state["ticker"])
+    uid = state.get("clerk_user_id")
+    with session_scope(uid) as db:
+        account = ExecutionRepo(db).get_account_snapshot(uid, state["ticker"])
     result = validate(h, account, date.today(), evidence, guardrail_cfg())
     return {"guardrail": result}
 

@@ -4,15 +4,16 @@ import uuid
 from datetime import date
 from typing import Any
 
+from app.execution.dal import ExecutionRepo
+
 # Reuse the Week-5 deterministic guardrails. Only a subset is time-sensitive.
 from app.guardrails.rules import validate
 
 # Hypothesis order_type -> place_equity_order 'type'. Long-only cash account.
 _TYPE_MAP = {"market": "market", "limit": "limit", "stop": "stop_market"}
 
-
 async def execution_node(
-    state: dict[str, Any], broker: Any, db: Any, cfg: Any
+    state: dict[str, Any], broker: Any, db: ExecutionRepo, cfg: Any
 ) -> dict[str, Any]:
     """Deterministic execution. Never raises — broker/tool errors become a rejected Order.
     Injected broker/db/cfg keep this testable and let paper mode swap in a stub broker."""
@@ -30,7 +31,7 @@ async def execution_node(
         price = await broker.get_quote(symbol)
 
         # 2. CHECK-TWICE: re-validate time-sensitive rules on the fresh quote + market state.
-        account = db.get_account_snapshot(state.get("user_id"))
+        account = db.get_account_snapshot(state.get("clerk_user_id"), state["ticker"])
         recheck = validate(
             h,
             account=account,
@@ -41,7 +42,11 @@ async def execution_node(
             market_open=broker.market_open(),
         )
         if not recheck["passed"]:
-            reasons = [r["reason"] for r in recheck["results"] if not r["passed"] and r["severity"] == "hard"]
+            reasons = [
+                r["reason"]
+                for r in recheck["results"]
+                if not r["passed"] and r["severity"] == "hard"
+            ]
             order = {"status": "rejected", "reason": "check_twice: " + "; ".join(reasons)}
             db.write_order(decision_id, order)
             return {"order": order, "guardrail": recheck}
@@ -49,7 +54,9 @@ async def execution_node(
         # 4. notional -> quantity (fractional shares, market + regular_hours).
         qty = round(float(h["size_usd"]) / price, 4)
         if qty <= 0:
-            raise ValueError(f"computed non-positive quantity from size_usd={h['size_usd']} price={price}")
+            raise ValueError(
+                f"computed non-positive quantity from size_usd={h['size_usd']} price={price}"
+            )
 
         # 5. field -> order mapping (deterministic; strings per the captured schema).
         otype = _TYPE_MAP[h["order_type"]]
@@ -65,7 +72,8 @@ async def execution_node(
         if otype == "limit":
             args["limit_price"] = f"{float(h['limit_price']):.2f}"
         elif otype == "stop_market":
-            args["stop_price"] = f"{float(h['limit_price']):.2f}"  # reuse limit_price field as the stop
+            # reuse the limit_price field as the stop price
+            args["stop_price"] = f"{float(h['limit_price']):.2f}"
 
         # 6. place.
         result = await broker.place_order(**args)

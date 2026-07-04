@@ -56,13 +56,18 @@ class ExecutionRepo:
         self.session.merge(o)
         self.session.commit()
 
-    def get_account_snapshot(self, user_id: str | None) -> dict:
+    def get_account_snapshot(self, user_id: str | None, ticker: str) -> dict:
         """Deterministic account facts validate() needs: {deployed, trades_today, pnl_today}.
 
         Positions/PnL are 0.0 until live broker positions are wired (Week 8); the trade count
         is real, from today's Order rows.
         """
-        return {"deployed": 0.0, "trades_today": self._trades_today(user_id), "pnl_today": 0.0}
+        return {
+            "ticker": ticker,                               
+            "deployed": 0.0,                               # live positions -> Week 8
+            "trades_today": self._trades_today(user_id),   # the REAL count
+            "pnl_today": 0.0,                              # live positions -> Week 8
+        }
 
     def today_counters(self, user_id: str | None) -> dict:
         """Today's rate-limit counters (trades opened today), scoped to the tenant."""
