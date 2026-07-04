@@ -39,5 +39,8 @@ class Settings(BaseSettings):
     fernet_key: str = ""
     clerk_jwks_url: str = ""
 
+    # Week 7: the live Robinhood Agentic account (agentic_allowed=true) orders place against.
+    robinhood_account_number: str = ""
+
 
 settings = Settings()
