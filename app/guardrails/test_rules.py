@@ -111,3 +111,32 @@ def test_all_rules_are_always_recorded():
 def test_citation_helper_directly():
     assert _citations_resolve(_hyp(), EVIDENCE) is True
     assert _citations_resolve(_hyp(citations=[]), EVIDENCE) is False
+
+
+# --- Week-7 check-twice rules (keyword-only, execution-time only) -------------------
+
+def test_check_twice_rules_absent_without_params():
+    # Guardrail-node / offline callers pass neither -> the two rules are NOT recorded.
+    out = validate(_hyp(), ACCOUNT, TODAY, EVIDENCE, CFG)
+    assert "market_hours" not in _failed_rules(out)
+    rules = {r["rule"] for r in out["results"]}
+    assert "market_hours" not in rules and "price_sanity" not in rules
+
+
+def test_market_closed_blocks():
+    out = validate(_hyp(), ACCOUNT, TODAY, EVIDENCE, CFG, live_price=190.0, market_open=False)
+    assert out["passed"] is False
+    assert "market_hours" in _failed_rules(out)
+
+
+def test_market_open_and_good_price_passes():
+    out = validate(_hyp(), ACCOUNT, TODAY, EVIDENCE, CFG, live_price=190.0, market_open=True)
+    assert out["passed"] is True
+    rules = {r["rule"] for r in out["results"]}
+    assert {"market_hours", "price_sanity"} <= rules   # both now recorded
+
+
+def test_bad_live_price_blocks():
+    out = validate(_hyp(), ACCOUNT, TODAY, EVIDENCE, CFG, live_price=0.0, market_open=True)
+    assert out["passed"] is False
+    assert "price_sanity" in _failed_rules(out)

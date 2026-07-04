@@ -28,7 +28,16 @@ def _citations_resolve(h: dict, evidence: dict) -> bool:
     return all((c.get("accession"), c.get("section")) in available for c in cites)
 
 
-def validate(h: dict, account: dict, today: date, evidence: dict, cfg: dict) -> dict:
+def validate(
+    h: dict,
+    account: dict,
+    today: date,
+    evidence: dict,
+    cfg: dict,
+    *,
+    live_price: float | None = None,
+    market_open: bool | None = None,
+) -> dict:
     """PURE function. No DB, no clock, no network — caller injects everything.
 
     h:        the hypothesis JSON (Week-4 hypothesis_node output)
@@ -37,8 +46,14 @@ def validate(h: dict, account: dict, today: date, evidence: dict, cfg: dict) -> 
     evidence: the Week-2/4 evidence bundle (for citation resolution)
     cfg:      guardrail_cfg() thresholds
 
-    Returns {"passed": bool, "results": [R, ...]}. EVERY rule is evaluated and recorded;
-    we never short-circuit. passed = all HARD rules passed.
+    Keyword-only, injected ONLY at the Week-7 execution check-twice (both default None):
+    live_price:  the FRESH broker quote — enables the price_sanity rule.
+    market_open: the FRESH market-state boolean — enables the market_hours rule.
+    When either is None its rule is simply not evaluated, so the guardrail node and the
+    offline tests (which pass neither) see the exact same 8-rule result as before.
+
+    Returns {"passed": bool, "results": [R, ...]}. EVERY (applicable) rule is evaluated and
+    recorded; we never short-circuit. passed = all HARD rules passed.
     """
     results: list[R] = []
 
@@ -108,6 +123,27 @@ def validate(h: dict, account: dict, today: date, evidence: dict, cfg: dict) -> 
         f"pnl_today {pnl} > -{cfg['max_daily_loss']}"
         if kill_ok else f"KILL SWITCH: pnl_today {pnl} <= -{cfg['max_daily_loss']}",
     ))
+
+    # --- time-sensitive rules: only at the Week-7 execution check-twice ---------------
+    # These re-check conditions that move BETWEEN the guardrail node and the human's click,
+    # so they run on the FRESH quote/market-state, not the stale ones the hypothesis was
+    # written against. Skipped entirely (not recorded) when their input is None.
+
+    # 9. market_hours (hard) — never place into a closed market.
+    if market_open is not None:
+        results.append(R(
+            "market_hours", bool(market_open), "hard",
+            "market open" if market_open else "market CLOSED at execution",
+        ))
+
+    # 10. price_sanity (hard) — the fresh quote must be a usable positive number before
+    #     execute.py divides size_usd by it (a 0.0 would be a divide-by-zero / absurd qty).
+    if live_price is not None:
+        price_ok = live_price > 0
+        results.append(R(
+            "price_sanity", price_ok, "hard",
+            f"live price {live_price} > 0" if price_ok else f"bad live price {live_price!r}",
+        ))
 
     passed = all(r.passed for r in results if r.severity == "hard")
     return {"passed": passed, "results": [r.__dict__ for r in results]}
