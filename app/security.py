@@ -7,6 +7,7 @@ from functools import lru_cache
 from cryptography.fernet import Fernet, InvalidToken
 from mcp.client.auth import TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from pydantic_core import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -41,7 +42,13 @@ def link_robinhood(db: Session, user: User, access_token: str, refresh_token: st
 
 def get_robinhood_access_token(user: User) -> str | None:
     blob = user.rh_oauth_token_enc
-    return OAuthToken.model_validate_json(decrypt_token(blob)).access_token if blob else None
+    if not blob: 
+        return None
+    
+    try:
+        return OAuthToken.model_validate_json(decrypt_token(blob)).access_token 
+    except (ValidationError, Exception) as e:
+        return None
 
 
 # ---- Primary OAuth token storage: encrypted, per-user, in Postgres ----------
@@ -61,7 +68,15 @@ class DbTokenStorage(TokenStorage):
 
     async def get_tokens(self) -> OAuthToken | None:
         blob = self.user.rh_oauth_token_enc
-        return OAuthToken.model_validate_json(decrypt_token(blob)) if blob else None
+        if not blob:
+            return None
+        
+        try:
+            decrypted_json = decrypt_token(blob)
+            return OAuthToken.model_validate_json(decrypted_json)
+        except (ValidationError, Exception) as e:
+            return None
+        
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         # Store the full token blob (access + refresh + expires_in/scope) as the source of truth.
