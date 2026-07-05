@@ -1,22 +1,36 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from jose import jwt
 from jose.exceptions import JWTError
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.agents.graph import build_graph
 from app.config import settings
 from app.db import session_scope
+from app.execution.dal import ExecutionRepo
 from app.models import User, execution_enabled_for
 from app.security import link_robinhood
 
-app = FastAPI(title = "Alphagen")
+GRAPH = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global GRAPH
+    async with AsyncPostgresSaver.from_conn_string(settings.database_url) as checkpointer:
+        await checkpointer.setup()           # the saver's OWN tables (independent of Alembic)
+        GRAPH = build_graph(checkpointer)    # singleton; build_graph takes only the checkpointer
+        yield
+
+app = FastAPI(title="Alphagen", lifespan=lifespan)
 
 # Browser calls come from the Vite dev origin; without this the preflight fails
 # and every fetch from the SPA is blocked. curl bypasses CORS, so test in-browser.
@@ -57,6 +71,11 @@ def get_db(clerk_user_id: str = Depends(current_user_id)) -> Iterator[Session]:
     with session_scope(clerk_user_id) as db:
         yield db
 
+def get_repo(db: Session = Depends(get_db)) -> ExecutionRepo:
+    # The owner endpoints talk to the DB through the repo verbs, not raw ORM — and they
+    # inherit the RLS-scoped session get_db already opened.
+    return ExecutionRepo(db)
+
 def current_user(
     clerk_user_id: str = Depends(current_user_id), db: Session = Depends(get_db)
 ) -> User:
@@ -68,6 +87,11 @@ def current_user(
         db.refresh(user)
     return user
 
+def require_owner(user: User = Depends(current_user)) -> User:   # current_user from Week 6
+    # The user row already carries the role — no DB round-trip needed for the gate.
+    if user.role != "owner":
+        raise HTTPException(status_code=403, detail="owner only")
+    return user
 
 @app.get("/me")
 def me(user: User = Depends(current_user)):
@@ -94,3 +118,53 @@ def link_rh(
 ) -> dict:
     link_robinhood(db, user, payload.access_token, payload.refresh_token)
     return {"robinhood_linked": True}  # do NOT echo the token back
+
+router = APIRouter(prefix="/owner", tags=["execution"])
+
+
+@router.get("/queue")
+async def approval_queue(
+    user: User = Depends(require_owner), repo: ExecutionRepo = Depends(get_repo)
+):
+    """Decisions paused at interrupt_before=['execute']."""
+    out = []
+    for d in repo.decisions_pending(user):               # human_decision == 'pending'
+        # aget_state (not get_state): the checkpointer is async (AsyncPostgresSaver).
+        snap = await GRAPH.aget_state({"configurable": {"thread_id": d.decision_id}})
+        if snap.next == ("execute",):                    # paused exactly at interrupt_before=["execute"]
+            out.append({
+                "decision_id": d.decision_id,
+                "ticker": d.ticker,
+                "hypothesis": snap.values["hypothesis"],
+                "critic_verdict": snap.values.get("critic_verdict"),
+                "guardrail": snap.values.get("guardrail"),
+            })
+    return out
+
+
+@router.post("/approve/{decision_id}")
+async def approve(
+    decision_id: str,
+    user: User = Depends(require_owner),
+    repo: ExecutionRepo = Depends(get_repo),
+):
+    repo.set_human_decision(decision_id, "approved", user)
+    cfg = {"configurable": {"thread_id": decision_id}}
+    final = await GRAPH.ainvoke(None, config=cfg)        # resumes -> runs the async execute node
+    return {"decision_id": decision_id, "order": final.get("order")}
+
+
+@router.post("/reject/{decision_id}")
+def reject(
+    decision_id: str,
+    reason: str = "",
+    user: User = Depends(require_owner),
+    repo: ExecutionRepo = Depends(get_repo),
+):
+    repo.set_human_decision(decision_id, "rejected", user, reason=reason)
+    # Do NOT resume. The graph stays parked; no broker call ever happens.
+    return {"decision_id": decision_id, "status": "rejected"}
+
+
+# Mount the owner router — without this the /owner/* routes are never served (404).
+app.include_router(router)

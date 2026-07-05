@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Order
+from app.models import Order, Decision, User
 
 
 class ExecutionRepo:
@@ -79,6 +79,22 @@ class ExecutionRepo:
         if user_id:
             stmt = stmt.where(Order.user_id == user_id)
         return self.session.scalar(stmt) or 0
+    
+    def role_of(self, user: User) -> str:
+        return user.role
+
+    def decisions_pending(self, user: User):
+        # Decisions whose human_decision is still 'pending', scoped to the tenant by RLS.
+        return self.session.scalars(
+            select(Decision).where(Decision.user_id == user.clerk_user_id,
+                                   Decision.human_decision == "pending")
+        ).all()
+
+    def set_human_decision(self, decision_id: str, verdict: str, user, reason: str = "") -> None:
+        dec = self.session.get(Decision, decision_id)
+        if dec is not None:
+            dec.human_decision = verdict         # 'approved' | 'rejected'
+            self.session.commit()
 
 
 def _order_to_dict(o: Order) -> dict:

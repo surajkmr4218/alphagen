@@ -47,7 +47,7 @@ def get_robinhood_access_token(user: User) -> str | None:
     
     try:
         return OAuthToken.model_validate_json(decrypt_token(blob)).access_token 
-    except (ValidationError, Exception) as e:
+    except (ValidationError, Exception):
         return None
 
 
@@ -74,7 +74,7 @@ class DbTokenStorage(TokenStorage):
         try:
             decrypted_json = decrypt_token(blob)
             return OAuthToken.model_validate_json(decrypted_json)
-        except (ValidationError, Exception) as e:
+        except (ValidationError, Exception):
             return None
         
 
