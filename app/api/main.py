@@ -17,6 +17,7 @@ from app.agents.graph import build_graph
 from app.config import settings
 from app.db import session_scope
 from app.execution.dal import ExecutionRepo
+from app.execution.reconcile import start_scheduler
 from app.models import User, execution_enabled_for
 from app.security import link_robinhood
 
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI):
     global GRAPH
     async with AsyncPostgresSaver.from_conn_string(settings.database_url) as checkpointer:
         await checkpointer.setup()           # the saver's OWN tables (independent of Alembic)
+        await start_scheduler()
         GRAPH = build_graph(checkpointer)    # singleton; build_graph takes only the checkpointer
         yield
 
@@ -86,6 +88,15 @@ def current_user(
         db.commit()
         db.refresh(user)
     return user
+
+def get_read_repo(user: User = Depends(current_user)) -> Iterator[ExecutionRepo]:
+    # Dashboard reads: the owner sees their own tenant; everyone else (public/recruiter)
+    # sees the seeded demo tenant. The tenant key goes into the RLS GUC, so the DB —
+    # not endpoint code — enforces the scoping.
+    tenant = user.clerk_user_id if user.role == "owner" else settings.demo_user_id
+    with session_scope(tenant) as db:
+        yield ExecutionRepo(db)
+
 
 def require_owner(user: User = Depends(current_user)) -> User:   # current_user from Week 6
     # The user row already carries the role — no DB round-trip needed for the gate.
@@ -164,6 +175,44 @@ def reject(
     repo.set_human_decision(decision_id, "rejected", user, reason=reason)
     # Do NOT resume. The graph stays parked; no broker call ever happens.
     return {"decision_id": decision_id, "status": "rejected"}
+
+# --- dashboard read endpoints — owner sees own tenant, public sees demo ---
+
+@app.get("/decisions")
+def list_decisions(repo: ExecutionRepo = Depends(get_read_repo)):
+    return [
+        {
+            "decision_id": d.decision_id,
+            "ticker": d.ticker,
+            "passed": d.passed,
+            "human_decision": d.human_decision,
+            "created_at": d.created_at,
+        }
+        for d in repo.list_decisions()
+    ]
+
+
+@app.get("/decisions/{decision_id}/trail")
+def reasoning_trail(decision_id: str, repo: ExecutionRepo = Depends(get_read_repo)):
+    d = repo.get_decision(decision_id)                    # RLS scopes by app.user_id
+    if d is None:                                         # missing OR another tenant's — same 404
+        raise HTTPException(status_code=404, detail="decision not found")
+    ev = d.evidence or {}                                 # pre-migration rows have no evidence
+    return {
+        "ticker": d.ticker,
+        "triggering_diff": ev.get("diff"),         # {section, added, removed, semantic_drift}
+        "cited_passages": ev.get("passages"),      # [{accession, section, text}]
+        "signals": ev.get("signals"),              # insider/scores/news/consensus
+        "hypothesis": d.hypothesis,                # direction, size_usd, confidence, rationale
+        "critic_verdict": d.critic_verdict,        # accept/reject, reasons, unsupported_citations
+        "guardrail": d.guardrail,                  # {passed, results:[{rule,...,reason}]}
+        "order": repo.get_order(decision_id),      # status, qty, broker_order_id (or null)
+    }
+
+
+@app.get("/eval/summary")
+def eval_summary(repo: ExecutionRepo = Depends(get_read_repo)):
+    return repo.eval_summary()
 
 
 # Mount the owner router — without this the /owner/* routes are never served (404).

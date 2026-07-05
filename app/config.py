@@ -42,5 +42,9 @@ class Settings(BaseSettings):
     # Week 7: the live Robinhood Agentic account (agentic_allowed=true) orders place against.
     robinhood_account_number: str = ""
 
+    # Week 7 dashboard: tenant key of the seeded demo account (scripts/seed_demo.py).
+    # Non-owner (public) users read this tenant's rows on the dashboard endpoints.
+    demo_user_id: str = "demo"
+
 
 settings = Settings()

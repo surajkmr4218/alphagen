@@ -103,6 +103,9 @@ class Decision(Base):
     # the full reasoning trail is stored inline as JSON so the dashboard reads one row.
     decision_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     ticker: Mapped[str] = mapped_column(String(16), index=True)     # ALWAYS upper-case
+    # The evidence bundle the run saw (diff + passages + signals) — persisted so the trail
+    # endpoint reads one row, independent of LangGraph checkpoint retention.
+    evidence: Mapped[dict] = mapped_column(JSON, default=dict)
     hypothesis: Mapped[dict] = mapped_column(JSON, default=dict)    # structured trade proposal
     critic_verdict: Mapped[dict | None] = mapped_column(JSON, default=dict)
     guardrail: Mapped[dict] = mapped_column(JSON, default=dict)     # {passed, results}

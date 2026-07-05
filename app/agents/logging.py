@@ -14,6 +14,7 @@ def write_decision(db, state: dict, user_id: str = "owner") -> str:
     dec = Decision(
         decision_id=did,
         ticker=state["ticker"],
+        evidence=state.get("evidence") or {},
         hypothesis=h,
         critic_verdict=state.get("critic_verdict"),
         guardrail=guard,                       # {passed, results} — the full rule trail
