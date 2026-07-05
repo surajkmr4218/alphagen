@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useApi } from "./lib/api";
+import { useApi } from "../lib/api";
 
 export default function LinkPrompt() {
   const api = useApi();

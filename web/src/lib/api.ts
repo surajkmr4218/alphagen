@@ -32,3 +32,57 @@ export function useMe() {
   return useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/me") });  // drives tier + gate
 }
 
+// --- Week-7 dashboard payloads. Every trail field can be null: a rejected
+// hypothesis has no order, a dropped one has no guardrail — render anyway.
+
+export interface DecisionSummary {
+  decision_id: string;
+  ticker: string;
+  passed: boolean;
+  human_decision: "pending" | "approved" | "rejected";
+  created_at: string;
+}
+
+export interface Hypothesis {
+  direction?: string;
+  order_type?: string;
+  limit_price?: number | null;
+  size_usd?: number;
+  confidence?: number;
+  rationale?: string;
+}
+
+export interface GuardrailResult {
+  rule: string;
+  passed: boolean;
+  severity: string;
+  reason: string;
+}
+
+export interface Trail {
+  ticker: string;
+  triggering_diff: { section: string; semantic_drift: number; added: string[]; removed: string[] } | null;
+  cited_passages: { accession: string; section: string; text: string }[] | null;
+  signals: Record<string, unknown> | null;
+  hypothesis: Hypothesis | null;
+  critic_verdict: { verdict?: string; reasons?: string[] } | null;
+  guardrail: { passed?: boolean; results?: GuardrailResult[] } | null;
+  order: { status: string; quantity?: number | null; limit_price?: number | null; broker_order_id?: string | null } | null;
+}
+
+export interface QueueItem {
+  decision_id: string;
+  ticker: string;
+  hypothesis: Hypothesis;
+  critic_verdict: { verdict?: string } | null;
+  guardrail: { passed?: boolean } | null;
+}
+
+export interface EvalSummary {
+  n_resolved: number;
+  n_pending: number;
+  hit_rate: number | null;
+  avg_return: number | null;
+  avg_excess_vs_spy: number | null;
+}
+

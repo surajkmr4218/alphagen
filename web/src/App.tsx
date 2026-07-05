@@ -2,7 +2,7 @@ import { useMe } from "./lib/api";
 
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/react";
 import Dashboard from "./Dashboard";
-import LinkPrompt from "./LinkPrompt";
+import LinkPrompt from "./components/LinkPrompt";
 
 import './App.css'
 
@@ -13,7 +13,10 @@ function Gated() {
   if (isLoading) return <p className="p-8">Loading…</p>;
   if (error) return <p className="p-8 text-red-600">Failed to load profile.</p>;
   if (!me) return <p className="p-8">Loading…</p>;  // retry-gap: not loading, no error, no data yet
-  return me.robinhood_linked ? <Dashboard me={me} /> : <LinkPrompt />;  // the gate
+  // Only the owner trades, so only the owner is gated on linking; public
+  // (recruiter) users go straight to the read-only demo dashboard.
+  if (me.role === "owner" && !me.robinhood_linked) return <LinkPrompt />;
+  return <Dashboard me={me} />;
 }
 
 export default function App() {
