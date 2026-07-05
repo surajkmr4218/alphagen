@@ -131,7 +131,7 @@ async def approval_queue(
     for d in repo.decisions_pending(user):               # human_decision == 'pending'
         # aget_state (not get_state): the checkpointer is async (AsyncPostgresSaver).
         snap = await GRAPH.aget_state({"configurable": {"thread_id": d.decision_id}})
-        if snap.next == ("execute",):                    # paused exactly at interrupt_before=["execute"]
+        if snap.next == ("execute",):       # paused exactly at interrupt_before=["execute"]
             out.append({
                 "decision_id": d.decision_id,
                 "ticker": d.ticker,

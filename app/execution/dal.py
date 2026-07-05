@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Order, Decision, User
+from app.models import Decision, Order, User
 
 
 class ExecutionRepo:
