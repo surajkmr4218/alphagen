@@ -26,11 +26,14 @@ GRAPH = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global GRAPH
-    async with AsyncPostgresSaver.from_conn_string(settings.database_url) as checkpointer:
+    # The saver speaks raw psycopg — it needs a libpq URL, not the SQLAlchemy '+psycopg' form.
+    conninfo = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
+    async with AsyncPostgresSaver.from_conn_string(conninfo) as checkpointer:
         await checkpointer.setup()           # the saver's OWN tables (independent of Alembic)
-        await start_scheduler()
+        scheduler = start_scheduler()        # reconcile cron; each tick owns its session/broker
         GRAPH = build_graph(checkpointer)    # singleton; build_graph takes only the checkpointer
         yield
+        scheduler.shutdown(wait=False)
 
 app = FastAPI(title="Alphagen", lifespan=lifespan)
 
