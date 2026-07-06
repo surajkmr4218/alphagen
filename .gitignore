@@ -11,3 +11,5 @@ __pycache__/
 *.pyc
 .robinhood_token.json
 
+# Scripts
+scripts/seed_demo.py
