@@ -25,16 +25,12 @@ export default function LinkPrompt() {
   }
 
   return (
-    <div className="mx-auto max-w-md p-8 text-center">
-      <h2 className="mb-2 text-xl font-semibold">Link your Robinhood account</h2>
-      <button
-        onClick={link}
-        disabled={busy}
-        className="rounded bg-emerald-600 px-4 py-2 text-white disabled:opacity-50"
-      >
+    <div className="panel mx-auto mt-16 max-w-md p-8 text-center">
+      <h2 className="mb-4 text-lg font-semibold text-ink">Link your Robinhood account</h2>
+      <button onClick={link} disabled={busy} className="btn btn-up">
         {busy ? "Linking…" : "Link Robinhood"}
       </button>
-      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+      {err && <p className="mt-3 font-mono text-sm text-down">{err}</p>}
     </div>
   );
 }

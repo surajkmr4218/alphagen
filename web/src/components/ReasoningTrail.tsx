@@ -3,19 +3,15 @@ import { useApi, type Trail } from "../lib/api";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border bg-white p-4">
-      <h3 className="mb-2 text-sm font-semibold text-gray-500">{title}</h3>
+    <section className="panel">
+      <h3 className="eyebrow">{title}</h3>
       {children}
     </section>
   );
 }
 
 function Badge({ ok, children }: { ok: boolean; children: React.ReactNode }) {
-  return (
-    <span className={`rounded px-2 py-0.5 text-xs font-semibold text-white ${ok ? "bg-emerald-600" : "bg-rose-600"}`}>
-      {children}
-    </span>
-  );
+  return <span className={`badge ${ok ? "badge-up" : "badge-down"}`}>{children}</span>;
 }
 
 // Walks the pipeline top to bottom (diff -> passages -> signals -> hypothesis -> critic ->
@@ -27,70 +23,105 @@ export function ReasoningTrail({ decisionId }: { decisionId: string }) {
     queryKey: ["trail", decisionId],
     queryFn: () => api<Trail>(`/decisions/${decisionId}/trail`),
   });
-  if (!d) return <div className="p-4 text-gray-400">Loading trail…</div>;
+  if (!d) return <div className="p-4 font-mono text-sm text-muted">Loading trail…</div>;
 
   const diff = d.triggering_diff;
   const hyp = d.hypothesis;
   const critic = d.critic_verdict;
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-xl font-semibold">{d.ticker} — reasoning trail</h2>
+    <div className="space-y-5">
+      <h2 className="flex items-baseline gap-3 border-b border-edge pb-3">
+        <span className="font-mono text-2xl font-semibold tracking-tight text-ink">{d.ticker}</span>
+        <span className="font-mono text-[11px] font-medium uppercase tracking-[0.16em] text-faint">
+          Reasoning Trail
+        </span>
+      </h2>
 
       <Section title="Triggering diff">
         {diff ? (
           <>
-            <p className="mb-2 text-sm text-gray-600">
-              {diff.section} · semantic drift {(diff.semantic_drift * 100).toFixed(0)}% ·{" "}
-              {diff.added?.length ?? 0} additions
+            <p className="mb-3 font-mono text-xs text-muted">
+              {diff.section} · semantic drift{" "}
+              <span className="font-semibold text-ink tabular-nums">
+                {(diff.semantic_drift * 100).toFixed(0)}%
+              </span>{" "}
+              · {diff.added?.length ?? 0} additions
             </p>
             {(diff.added ?? []).map((s, i) => (
-              <p key={i} className="mb-1 rounded bg-emerald-50 px-2 py-1 text-sm">+ {s}</p>
+              <p
+                key={i}
+                className="mb-1.5 border-l-2 border-up/60 bg-up/8 px-3 py-1.5 font-mono text-[13px] leading-relaxed text-ink"
+              >
+                <span className="mr-1 font-semibold text-up">+</span>
+                {s}
+              </p>
             ))}
             {(diff.removed ?? []).map((s, i) => (
-              <p key={i} className="mb-1 rounded bg-rose-50 px-2 py-1 text-sm">− {s}</p>
+              <p
+                key={i}
+                className="mb-1.5 border-l-2 border-down/60 bg-down/8 px-3 py-1.5 font-mono text-[13px] leading-relaxed text-muted"
+              >
+                <span className="mr-1 font-semibold text-down">−</span>
+                {s}
+              </p>
             ))}
           </>
         ) : (
-          <p className="text-sm text-gray-400">No diff recorded.</p>
+          <p className="text-sm text-faint">No diff recorded.</p>
         )}
       </Section>
 
       <Section title="Cited passages">
         {d.cited_passages?.length ? (
           d.cited_passages.map((p, i) => (
-            <blockquote key={i} className="mb-2 border-l-2 border-gray-300 pl-3 text-sm">
-              <p>{p.text}</p>
-              <footer className="text-xs text-gray-400">{p.accession} · {p.section}</footer>
+            <blockquote key={i} className="mb-3 border-l-2 border-edge-bright pl-3 last:mb-0">
+              <p className="text-sm leading-relaxed text-ink/90">{p.text}</p>
+              <footer className="mt-1 font-mono text-[11px] text-faint">
+                {p.accession} · {p.section}
+              </footer>
             </blockquote>
           ))
         ) : (
-          <p className="text-sm text-gray-400">No passages cited.</p>
+          <p className="text-sm text-faint">No passages cited.</p>
         )}
       </Section>
 
       <Section title="Signals">
         {d.signals ? (
-          <pre className="overflow-x-auto rounded bg-gray-50 p-2 text-xs">
+          <pre className="overflow-x-auto rounded-[2px] border border-edge bg-inset p-3 font-mono text-xs leading-relaxed text-muted">
             {JSON.stringify(d.signals, null, 2)}
           </pre>
         ) : (
-          <p className="text-sm text-gray-400">No signals recorded.</p>
+          <p className="text-sm text-faint">No signals recorded.</p>
         )}
       </Section>
 
       <Section title="Hypothesis">
         {hyp ? (
           <>
-            <p className="text-sm">
-              <b>{hyp.direction ?? "—"}</b> · ${hyp.size_usd ?? "—"} · {hyp.order_type ?? "—"}
+            <p className="font-mono text-sm tabular-nums text-ink">
+              <b
+                className={
+                  hyp.direction === "buy" || hyp.direction === "long"
+                    ? "text-up"
+                    : hyp.direction === "sell" || hyp.direction === "short"
+                      ? "text-down"
+                      : ""
+                }
+              >
+                {hyp.direction ?? "—"}
+              </b>{" "}
+              · ${hyp.size_usd ?? "—"} · {hyp.order_type ?? "—"}
               {hyp.limit_price != null && <> @ ${hyp.limit_price}</>}
               {hyp.confidence != null && <> · conf {(hyp.confidence * 100).toFixed(0)}%</>}
             </p>
-            {hyp.rationale && <p className="mt-1 text-sm text-gray-600">{hyp.rationale}</p>}
+            {hyp.rationale && (
+              <p className="mt-2 text-sm leading-relaxed text-muted">{hyp.rationale}</p>
+            )}
           </>
         ) : (
-          <p className="text-sm text-gray-400">No hypothesis.</p>
+          <p className="text-sm text-faint">No hypothesis.</p>
         )}
       </Section>
 
@@ -99,40 +130,44 @@ export function ReasoningTrail({ decisionId }: { decisionId: string }) {
           <>
             <Badge ok={critic.verdict === "accept"}>{critic.verdict.toUpperCase()}</Badge>
             {(critic.reasons ?? []).map((r, i) => (
-              <p key={i} className="mt-1 text-sm text-gray-600">— {r}</p>
+              <p key={i} className="mt-2 text-sm leading-relaxed text-muted">
+                — {r}
+              </p>
             ))}
           </>
         ) : (
-          <p className="text-sm text-gray-400">No critic verdict.</p>
+          <p className="text-sm text-faint">No critic verdict.</p>
         )}
       </Section>
 
       <Section title="Guardrail outcomes">
         {d.guardrail?.results?.length ? (
           d.guardrail.results.map((r, i) => (
-            <div key={i} className="mb-1 flex items-center gap-2 text-sm">
+            <div key={i} className="mb-2 flex items-center gap-2.5 text-sm last:mb-0">
               <Badge ok={r.passed}>{r.passed ? "PASS" : r.severity.toUpperCase()}</Badge>
-              <span>{r.rule}</span>
-              {!r.passed && <span className="text-gray-400">— {r.reason}</span>}
+              <span className="font-mono text-[13px] text-ink">{r.rule}</span>
+              {!r.passed && <span className="text-faint">— {r.reason}</span>}
             </div>
           ))
         ) : (
-          <p className="text-sm text-gray-400">Not evaluated (dropped before the guardrail).</p>
+          <p className="text-sm text-faint">Not evaluated (dropped before the guardrail).</p>
         )}
       </Section>
 
       <Section title="Order">
         {d.order ? (
-          <p className="text-sm">
+          <p className="flex items-center gap-2 font-mono text-sm tabular-nums text-ink">
             <Badge ok={d.order.status === "filled"}>{d.order.status.toUpperCase()}</Badge>{" "}
-            {d.order.quantity != null && <>{d.order.quantity} sh</>}
-            {d.order.limit_price != null && <> @ ${d.order.limit_price}</>}
-            {d.order.broker_order_id && (
-              <span className="text-gray-400"> · ref {d.order.broker_order_id}</span>
-            )}
+            <span>
+              {d.order.quantity != null && <>{d.order.quantity} sh</>}
+              {d.order.limit_price != null && <> @ ${d.order.limit_price}</>}
+              {d.order.broker_order_id && (
+                <span className="text-faint"> · ref {d.order.broker_order_id}</span>
+              )}
+            </span>
           </p>
         ) : (
-          <p className="text-sm text-gray-400">No order — hypothesis did not clear the pipeline.</p>
+          <p className="text-sm text-faint">No order — hypothesis did not clear the pipeline.</p>
         )}
       </Section>
     </div>

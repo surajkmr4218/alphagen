@@ -19,17 +19,19 @@ export function EvalPanel() {
     : [];
 
   return (
-    <section className="rounded-lg border bg-white p-4">
-      <h3 className="mb-2 text-sm font-semibold text-gray-500">Performance</h3>
+    <section className="panel">
+      <h3 className="eyebrow">Performance</h3>
       {!s ? (
-        <p className="text-sm text-gray-400">Loading…</p>
+        <p className="text-sm text-faint">Loading…</p>
       ) : (
         <table className="w-full text-sm">
           <tbody>
             {rows.map(([k, v]) => (
-              <tr key={k} className="border-b last:border-0">
-                <td className="py-1 text-gray-500">{k}</td>
-                <td className="py-1 text-right font-medium">{v}</td>
+              <tr key={k} className="border-b border-edge/70 last:border-0">
+                <td className="py-2 text-[13px] text-muted">{k}</td>
+                <td className="py-2 text-right font-mono text-[15px] font-medium tabular-nums text-ink">
+                  {v}
+                </td>
               </tr>
             ))}
           </tbody>

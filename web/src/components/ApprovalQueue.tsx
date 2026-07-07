@@ -17,29 +17,32 @@ export function ApprovalQueue() {
   });
 
   return (
-    <section className="rounded-lg border bg-white p-4">
-      <h3 className="mb-2 text-sm font-semibold text-gray-500">Approval queue</h3>
-      {!data?.length && <p className="text-sm text-gray-400">No pending approvals.</p>}
+    <section className="panel">
+      <h3 className="eyebrow">Approval queue</h3>
+      {!data?.length && <p className="text-sm text-faint">No pending approvals.</p>}
       {(data ?? []).map((q) => (
-        <div key={q.decision_id} className="mb-3 rounded border p-3">
-          <div className="flex justify-between">
-            <b>{q.ticker}</b>
-            <span className="text-sm text-gray-500">
+        <div
+          key={q.decision_id}
+          className="mb-3 rounded-[2px] border border-edge-bright bg-inset p-3 last:mb-0"
+        >
+          <div className="flex items-baseline justify-between gap-2">
+            <b className="font-mono text-sm font-semibold text-ink">{q.ticker}</b>
+            <span className="font-mono text-xs tabular-nums text-muted">
               ${q.hypothesis.size_usd}
               {q.hypothesis.confidence != null && <> · conf {(q.hypothesis.confidence * 100).toFixed(0)}%</>}
             </span>
           </div>
-          <p className="my-2 text-sm text-gray-600">{q.hypothesis.rationale}</p>
+          <p className="my-2.5 text-[13px] leading-relaxed text-muted">{q.hypothesis.rationale}</p>
           <div className="flex gap-2">
             <button
-              className="rounded bg-emerald-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+              className="btn btn-up flex-1"
               disabled={act.isPending}
               onClick={() => act.mutate({ id: q.decision_id, action: "approve" })}
             >
               Approve &amp; place
             </button>
             <button
-              className="rounded bg-rose-700 px-3 py-1 text-sm text-white disabled:opacity-50"
+              className="btn btn-down"
               disabled={act.isPending}
               onClick={() => act.mutate({ id: q.decision_id, action: "reject" })}
             >
