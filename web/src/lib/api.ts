@@ -29,7 +29,10 @@ export interface Me {
 
 export function useMe() {
   const api = useApi();
-  return useQuery({ queryKey: ["me"], queryFn: () => api<Me>("/me") });  // drives tier + gate
+  return useQuery({ 
+    queryKey: ["me"], 
+    queryFn: () => api<Me>("/me") 
+  });  // drives tier + gate
 }
 
 // --- Week-7 dashboard payloads. Every trail field can be null: a rejected
