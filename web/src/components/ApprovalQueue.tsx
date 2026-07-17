@@ -33,6 +33,18 @@ export function ApprovalQueue() {
             </span>
           </div>
           <p className="my-2.5 text-[13px] leading-relaxed text-muted">{q.hypothesis.rationale}</p>
+          {/* The critic is advisory — show its take so the human gate decides informed. */}
+          {q.critic_verdict?.verdict && (
+            <div className="mb-2.5">
+              <span className={`badge ${q.critic_verdict.verdict === "accept" ? "badge-up" : "badge-down"}`}>
+                critic: {q.critic_verdict.verdict}
+              </span>
+              {q.critic_verdict.verdict !== "accept" &&
+                (q.critic_verdict.reasons ?? []).map((r, i) => (
+                  <p key={i} className="mt-1.5 text-xs leading-relaxed text-faint">— {r}</p>
+                ))}
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               className="btn btn-up flex-1"

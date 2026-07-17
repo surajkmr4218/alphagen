@@ -6,13 +6,6 @@ from app.agents.state import TradeState
 from app.models import User
 
 
-def _after_critic(state: TradeState) -> str:
-    # Accept -> run guardrails; reject -> straight to logging (still recorded). Either way
-    # the run reaches log_node, so every decision lands in the dashboard reasoning trail.
-    v = (state.get("critic_verdict") or {}).get("verdict")
-    return "guardrail" if v == "accept" else "log"
-
-
 def _after_log(state: TradeState) -> str:
     passed = (state.get("guardrail") or {}).get("passed", False)
     # The tier gate: only the owner (execution_enabled=True) may reach execute, and only
@@ -52,8 +45,11 @@ def build_graph(checkpointer):
     g.add_edge(START, "research")
     g.add_edge("research", "hypothesis")
     g.add_edge("hypothesis", "critic")
-    g.add_conditional_edges("critic", _after_critic, {"guardrail": "guardrail", "log": "log"})
-    g.add_edge("guardrail", "log")             # accept path logs after the guardrail result
+    # The critic is ADVISORY: its verdict is recorded and shown at the approval gate, but it
+    # never ends the run — the owner decides. Deterministic guardrails (incl. the hard
+    # citations rule) still gate execution via _after_log; only LLM opinion lost its veto.
+    g.add_edge("critic", "guardrail")
+    g.add_edge("guardrail", "log")             # every run logs after the guardrail result
     g.add_conditional_edges("log", _after_log, {"execute": "execute", "END": END})
     g.add_edge("execute", END)
 

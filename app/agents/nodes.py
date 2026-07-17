@@ -154,10 +154,10 @@ def guardrail_node(state: TradeState) -> dict:
 
 
 def log_node(state: TradeState) -> dict:
-    """Persist the decision record for EVERY run — critic-accepted AND critic-rejected — so the
-    dashboard reasoning trail is complete. Reached after guardrail (accept path) or directly
-    after critic (reject path), so `state` may have no guardrail; write_decision handles that
-    (passed=False, no Order). Runs before the execute interrupt."""
+    """Persist the decision record for EVERY run — the trail (incl. an advisory critic reject)
+    must be complete before the approval gate. Always reached via guardrail; a rejected or
+    abstaining hypothesis still lands here with guardrail passed=False (no Order).
+    Runs before the execute interrupt."""
     from app.agents.logging import write_decision
     from app.db import session_scope
 
