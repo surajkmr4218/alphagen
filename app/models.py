@@ -133,6 +133,8 @@ class Order(Base):
     qty: Mapped[float | None] = mapped_column(Float)           # share count — filled Week 7
     limit_price: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(32))            # pending -> filled/rejected (Week 7)
+    # Why execution rejected (e.g. check-twice market_hours) — shown on the reasoning trail.
+    reason: Mapped[str | None] = mapped_column(Text)
     broker_order_id: Mapped[str | None] = mapped_column(String(64))  # filled Week 7
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

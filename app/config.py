@@ -18,7 +18,7 @@ def guardrail_cfg() -> dict:
         "allowlist": [            # only these tickers may ever trade (HARD)
             "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "PG", "SPY", 
         ],
-        "max_per_day": 3,         # FR5: rate-limit / cooldown — trades opened per day (HARD)
+        "max_per_day": 10,         # FR5: rate-limit / cooldown — trades opened per day (HARD)
         "max_daily_loss": 5.0,    # FR5: daily kill-switch — halt if today's PnL <= -$5 (HARD)
     }
 
