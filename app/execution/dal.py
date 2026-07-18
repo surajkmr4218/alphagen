@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -48,8 +48,22 @@ class ExecutionRepo:
             o.order_type = order["order_type"]
         if order.get("quantity") is not None:
             o.qty = float(order["quantity"])
+        if order.get("reason") is not None:
+            o.reason = order["reason"]
         self.session.merge(o)
         self.session.commit()
+
+    def update_guardrail(self, decision_id: str, guardrail: dict) -> None:
+        """Replace the decision's guardrail trail with the execution-time CHECK-TWICE result.
+
+        log_node persisted the hypothesis-time pass, but the rules that actually block an
+        approved order (market_hours, price_sanity) only run at execution — without this the
+        dashboard shows all-PASS while the order sits rejected."""
+        dec = self.session.get(Decision, decision_id)
+        if dec is not None:
+            dec.guardrail = guardrail
+            dec.passed = bool(guardrail.get("passed"))
+            self.session.commit()
 
     def get_account_snapshot(self, user_id: str | None, ticker: str) -> dict:
         """Deterministic account facts validate() needs: {deployed, trades_today, pnl_today}.
@@ -138,6 +152,59 @@ class ExecutionRepo:
         outcome.resolved_at = datetime.now(UTC)
         self.session.commit()
 
+    # --- consumed by the UI run-submission endpoints (Week-7.5 dashboard upgrades) ----
+    # Run state lives in Decision.human_decision: 'running' -> 'pending' (parked at the
+    # approval gate) | 'rejected' (system-resolved: critic/guardrail/abstain) | 'failed'.
+    def create_running_decision(self, decision_id: str, ticker: str, user_id: str) -> None:
+        """Stub row inserted BEFORE the pipeline starts, so run status is DB-backed.
+
+        write_decision's merge never sets human_decision on its transient instance, so
+        'running' survives log_node while the JSON trail fields get filled in.
+        """
+        self.session.add(Decision(
+            decision_id=decision_id, ticker=ticker.upper(), user_id=user_id,
+            human_decision="running", evidence={}, hypothesis={}, critic_verdict={},
+            guardrail={}, passed=False, created_at=datetime.now(UTC),
+        ))
+        self.session.commit()
+
+    def active_run_for(self, ticker: str, *, stale_minutes: int = 30) -> Decision | None:
+        """The in-flight run blocking this ticker, if any. Rows older than the staleness
+        window don't count — a worker that died mid-run must not brick the ticker."""
+        cutoff = datetime.now(UTC) - timedelta(minutes=stale_minutes)
+        return self.session.scalars(
+            select(Decision).where(
+                Decision.ticker == ticker.upper(),
+                Decision.human_decision == "running",
+                Decision.created_at >= cutoff,
+            )
+        ).first()
+
+    def pending_decisions_for(self, ticker: str) -> list[Decision]:
+        """'pending' candidates for the one-active-run check. The caller must confirm each
+        is actually parked at the execute interrupt (aget_state) — legacy critic-rejected
+        rows sit at 'pending' forever without being parked and must not block."""
+        return list(self.session.scalars(
+            select(Decision).where(
+                Decision.ticker == ticker.upper(), Decision.human_decision == "pending"
+            )
+        ))
+
+    def mark_run_status(self, decision_id: str, status: str, *, reason: str | None = None) -> None:
+        dec = self.session.get(Decision, decision_id)
+        if dec is None:
+            return
+        dec.human_decision = status
+        if reason and not dec.guardrail:
+            # Guardrail-shaped so the existing ReasoningTrail UI renders the failure
+            # without any new frontend field; /owner/runs reads the reason back from here.
+            dec.guardrail = {
+                "passed": False,
+                "results": [{"rule": "pipeline", "passed": False,
+                             "severity": "hard", "reason": reason[:500]}],
+            }
+        self.session.commit()
+
     # --- consumed by the dashboard read endpoints (Session 6) ------------------
     # No explicit user_id filters here: the session's RLS GUC (app.user_id) already
     # scopes decisions/orders/outcomes to one tenant — another tenant's rows are invisible.
@@ -145,6 +212,27 @@ class ExecutionRepo:
         return list(self.session.scalars(
             select(Decision).order_by(Decision.created_at.desc()).limit(limit)
         ))
+
+    def list_decisions_with_fills(
+        self, limit: int = 20
+    ) -> list[tuple[Decision, Order | None, Outcome | None]]:
+        """Decisions newest-first with their order + outcome in ONE query (no N+1).
+        Outcome has no uniqueness on decision_id, so dedupe to the first-seen row."""
+        rows = self.session.execute(
+            select(Decision, Order, Outcome)
+            .outerjoin(Order, Order.decision_id == Decision.decision_id)
+            .outerjoin(Outcome, Outcome.decision_id == Decision.decision_id)
+            .order_by(Decision.created_at.desc())
+            .limit(limit)
+        ).all()
+        seen: set[str] = set()
+        out: list[tuple[Decision, Order | None, Outcome | None]] = []
+        for dec, order, outcome in rows:
+            if dec.decision_id in seen:
+                continue
+            seen.add(dec.decision_id)
+            out.append((dec, order, outcome))
+        return out
 
     def get_decision(self, decision_id: str) -> Decision | None:
         return self.session.get(Decision, decision_id)
@@ -176,6 +264,7 @@ def _order_to_dict(o: Order) -> dict:
     return {
         "decision_id": o.decision_id,
         "status": o.status,
+        "reason": o.reason,
         "broker_order_id": o.broker_order_id,
         "symbol": o.symbol,
         "side": o.side,

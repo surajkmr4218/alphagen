@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
+import uuid
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 
 import httpx
@@ -10,14 +13,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import jwt
 from jose.exceptions import JWTError
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.agents.graph import build_graph
+from app.api.runs import launch_run
 from app.config import settings
 from app.db import session_scope
 from app.execution.dal import ExecutionRepo
+from app.execution.execute import _build_broker, _load_user
+from app.execution.quotes import cached_quote
 from app.execution.reconcile import start_scheduler
+from app.execution.robinhood import StubBroker
 from app.models import User, execution_enabled_for
 from app.security import link_robinhood
 
@@ -179,20 +186,145 @@ def reject(
     # Do NOT resume. The graph stays parked; no broker call ever happens.
     return {"decision_id": decision_id, "status": "rejected"}
 
+
+class NewHypothesis(BaseModel):
+    ticker: str
+
+    @field_validator("ticker")
+    @classmethod
+    def _valid_ticker(cls, v: str) -> str:
+        v = v.strip().upper()
+        if not re.fullmatch(r"[A-Z]{1,5}", v):
+            raise ValueError("ticker must be 1-5 letters")
+        return v
+
+
+@router.post("/hypotheses", status_code=202)
+async def create_hypothesis(
+    payload: NewHypothesis,
+    user: User = Depends(require_owner),
+    repo: ExecutionRepo = Depends(get_repo),
+):
+    """Kick off one pipeline run for a ticker; the graph itself still pauses at the
+    interrupt_before=["execute"] human gate. ONE ACTIVE RUN PER TICKER: an in-flight run
+    or a decision parked at the approval gate blocks with a 409 carrying its decision_id
+    (the UI jumps to that trail). Resolved runs (approved/rejected/failed) don't block."""
+    ticker = payload.ticker
+    blocker = repo.active_run_for(ticker)
+    if blocker is None:
+        for d in repo.pending_decisions_for(ticker):
+            # Same parked-at-execute semantics as /owner/queue: legacy critic-rejected rows
+            # sit at 'pending' without a parked thread and must not block resubmission.
+            snap = await GRAPH.aget_state({"configurable": {"thread_id": d.decision_id}})
+            if snap.next == ("execute",):
+                blocker = d
+                break
+    if blocker is not None:
+        raise HTTPException(status_code=409, detail={
+            "decision_id": blocker.decision_id,
+            "ticker": ticker,
+            "message": "a run for this ticker is already in progress or awaiting approval",
+        })
+
+    decision_id = str(uuid.uuid4())
+    repo.create_running_decision(decision_id, ticker, user.clerk_user_id)
+    launch_run(GRAPH, decision_id, ticker, user.clerk_user_id)
+    return {"decision_id": decision_id, "ticker": ticker, "status": "running"}
+
+
+# active_run_for treats older 'running' rows as dead (worker restarted mid-run);
+# report the same staleness here so the UI's poll terminates instead of spinning.
+_RUN_STALE_MINUTES = 30
+
+
+@router.get("/runs/{decision_id}")
+def run_status(
+    decision_id: str,
+    user: User = Depends(require_owner),
+    repo: ExecutionRepo = Depends(get_repo),
+):
+    d = repo.get_decision(decision_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    if d.human_decision == "running":
+        created = d.created_at if d.created_at.tzinfo else d.created_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) - created < timedelta(minutes=_RUN_STALE_MINUTES):
+            return {"decision_id": decision_id, "status": "running"}
+        return {"decision_id": decision_id, "status": "failed",
+                "reason": "stale — worker restarted mid-run"}
+    if d.human_decision == "failed":
+        results = (d.guardrail or {}).get("results") or [{}]
+        return {"decision_id": decision_id, "status": "failed",
+                "reason": results[0].get("reason")}
+    if d.human_decision == "pending":
+        return {"decision_id": decision_id, "status": "pending-approval"}
+    return {"decision_id": decision_id, "status": "complete", "human_decision": d.human_decision}
+
 # --- dashboard read endpoints — owner sees own tenant, public sees demo ---
 
+# Last snapshot that came back from the live broker. Served (marked stale) when the broker
+# blips so the account bar never 500s; static demo values until the first good read.
+_ACCOUNT_LAST_GOOD: dict | None = None
+_DEMO_ACCOUNT = {"total_equity": 50.0, "cash": 25.0, "buying_power": 25.0}
+
+
+@app.get("/account")
+async def account(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Balance bar snapshot. Owner: live broker; public: static demo values. Never 500s."""
+    global _ACCOUNT_LAST_GOOD
+    if user.role != "owner":
+        return {**_DEMO_ACCOUNT, "stale": False}
+    try:
+        # `user` is attached to this same `db` session, so DbTokenStorage refreshes land.
+        snap = await _build_broker(user, db, True).portfolio()
+        _ACCOUNT_LAST_GOOD = snap
+        return {**snap, "stale": False}
+    except Exception:  # noqa: BLE001 — a broker blip must never break the 30s poll
+        return {**(_ACCOUNT_LAST_GOOD or _DEMO_ACCOUNT), "stale": True}
+
+
 @app.get("/decisions")
-def list_decisions(repo: ExecutionRepo = Depends(get_read_repo)):
-    return [
-        {
+async def list_decisions(
+    user: User = Depends(current_user), repo: ExecutionRepo = Depends(get_read_repo)
+):
+    live = user.role == "owner"
+    if live:
+        # current_user loaded `user` on the get_db session; the broker's token storage
+        # commits on the session it's handed, so reload on the repo's session.
+        broker = _build_broker(_load_user(repo.session, user.clerk_user_id), repo.session, True)
+    else:
+        broker = StubBroker()
+
+    out = []
+    for d, order, outcome in repo.list_decisions_with_fills():
+        item = {
             "decision_id": d.decision_id,
             "ticker": d.ticker,
             "passed": d.passed,
             "human_decision": d.human_decision,
             "created_at": d.created_at,
+            "size_usd": (d.hypothesis or {}).get("size_usd"),  # old rows may lack it
+            "order_status": order.status if order else None,
+            "entry": None,
+            "current_price": None,
+            "unrealized_pnl_pct": None,
         }
-        for d in repo.list_decisions()
-    ]
+        filled = (
+            order is not None and order.status == "filled"
+            and outcome is not None and outcome.fill_price and order.qty
+        )
+        if filled:
+            # One get_quote per DISTINCT ticker per ~30s (TTL cache); None on failure —
+            # the P&L fields go null, the endpoint never fails on a quote blip.
+            price = await cached_quote(broker, d.ticker, live=live)
+            if price is not None:
+                item["entry"] = round(outcome.fill_price * order.qty, 2)
+                item["current_price"] = price
+                item["unrealized_pnl_pct"] = round(
+                    (price - outcome.fill_price) / outcome.fill_price * 100, 1
+                )
+        out.append(item)
+    return out
 
 
 @app.get("/decisions/{decision_id}/trail")
