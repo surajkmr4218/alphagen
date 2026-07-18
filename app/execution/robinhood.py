@@ -111,64 +111,29 @@ class RobinhoodBroker:
         return orders[0] if orders else {}
 
     async def portfolio(self) -> dict[str, float | None]:
-        """Account snapshot: {total_equity, cash, buying_power}. Values arrive as STRINGS.
+        """Account snapshot: {total_equity, cash, buying_power}.
 
-        The exact get_portfolio field names are defensive guesses (several candidates each);
-        anything unresolvable falls back to get_accounts, then to None — a partial snapshot
-        beats an exception on the dashboard's 30s poll.
+        Field names are PINNED to the observed get_portfolio payload (Session-0 preflight
+        raw dump, 2026-07-17): money values are strings; buying_power is nested one level;
+        total_value is the whole account (equity_value is only the stock slice — wrong one).
+        A missing/malformed field maps to None (the dashboard renders a dash) — never an
+        exception or a second guessing call on the 30s poll.
         """
         res = await self._call("get_portfolio", account_number=self.account_number)
-        data = _flatten(self._payload(res).get("data", {}))
-
-        out = {
-            "total_equity": _first_float(data, "total_equity", "equity", "market_value",
-                                          "total_market_value", "portfolio_value"),
-            "cash": _first_float(data, "cash", "cash_balance", "uncleared_cash",
-                                 "cash_available_for_withdrawal"),
-            "buying_power": _first_float(data, "buying_power", "cash_buying_power",
-                                         "crypto_buying_power"),
+        data = self._payload(res).get("data", {})
+        bp = data.get("buying_power")
+        return {
+            "total_equity": _to_float(data.get("total_value")),
+            "cash": _to_float(data.get("cash")),
+            "buying_power": _to_float(bp.get("buying_power") if isinstance(bp, dict) else bp),
         }
-        if any(v is None for v in out.values()):
-            accounts = await self._call("get_accounts")
-            rows = self._payload(accounts).get("data", {})
-            rows = rows.get("results") or rows.get("accounts") or []
-            row = _flatten(rows[0]) if rows else {}
-            for key, names in {
-                "total_equity": ("total_equity", "equity", "portfolio_value"),
-                "cash": ("cash", "cash_balance"),
-                "buying_power": ("buying_power",),
-            }.items():
-                if out[key] is None:
-                    out[key] = _first_float(row, *names)
-        return out
 
 
-def _flatten(d: dict, prefix: str = "") -> dict:
-    """One-level-deep flatten so nested payloads ({'equities': {'equity': ...}}) are
-    searchable by leaf key alongside top-level keys."""
-    flat: dict = {}
-    for k, v in d.items():
-        if isinstance(v, dict):
-            for k2, v2 in v.items():
-                flat.setdefault(k2, v2)
-        else:
-            flat.setdefault(k, v)
-    return flat
-
-
-def _first_float(d: dict, *keys: str) -> float | None:
-    for k in keys:
-        v = d.get(k)
-        if v is None:
-            continue
-        # Robinhood wraps some money values as {"amount": "12.34", "currency_code": "USD"}.
-        if isinstance(v, dict):
-            v = v.get("amount")
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            continue
-    return None
+def _to_float(v: Any) -> float | None:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 class StubBroker:

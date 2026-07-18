@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -532,3 +533,56 @@ def test_list_decisions_with_fills_joins_and_dedupes(db_session):
     dec, order, outcome = rows[0]
     assert dec.decision_id == "d-x" and order.status == "filled"
     assert outcome.fill_price in (100.0, 101.0)
+
+
+# --- RobinhoodBroker.portfolio: field names pinned to the observed payload ----------
+# Verbatim shape from the Session-0 preflight raw dump (2026-07-17): money values are
+# strings, buying_power is nested one level. No guessing, no get_accounts fallback.
+
+_PORTFOLIO_PAYLOAD = {
+    "data": {
+        "total_value": "50.1908924",
+        "equity_value": "5.2008924",
+        "options_value": "0",
+        "cash": "44.99",
+        "pending_deposits": "0",
+        "currency": "USD",
+        "buying_power": {
+            "buying_power": "44.9900",
+            "unleveraged_buying_power": "44.9900",
+            "display_currency": "USD",
+        },
+    }
+}
+
+
+def _mcp_broker(payload):
+    """Real RobinhoodBroker with _call faked at the MCP boundary (content-block shape)."""
+    from app.execution.robinhood import RobinhoodBroker
+
+    broker = RobinhoodBroker("570244269", auth=None)
+    calls: list[str] = []
+
+    async def fake_call(name, **kwargs):
+        calls.append(name)
+        return [{"type": "text", "text": json.dumps(payload)}]
+
+    broker._call = fake_call
+    return broker, calls
+
+
+def test_portfolio_maps_pinned_payload_fields():
+    broker, calls = _mcp_broker(_PORTFOLIO_PAYLOAD)
+    snap = asyncio.run(broker.portfolio())
+    assert snap == {"total_equity": 50.1908924, "cash": 44.99, "buying_power": 44.99}
+    assert calls == ["get_portfolio"]
+
+
+def test_portfolio_missing_field_is_none_without_fallback_calls():
+    # equity fields absent -> None (dashboard renders a dash); pinned names mean there is
+    # no second get_accounts guessing call, ever.
+    payload = {"data": {"cash": "44.99", "buying_power": {"buying_power": "44.9900"}}}
+    broker, calls = _mcp_broker(payload)
+    snap = asyncio.run(broker.portfolio())
+    assert snap == {"total_equity": None, "cash": 44.99, "buying_power": 44.99}
+    assert calls == ["get_portfolio"]
