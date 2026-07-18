@@ -79,6 +79,10 @@ async def execution_node(state: dict[str, Any], config: Any = None) -> dict[str,
                 live_price=price,            # price-sanity uses the FRESH price
                 market_open=broker.market_open(),
             )
+            # Persist the execution-time result over the hypothesis-time pass: market_hours/
+            # price_sanity only run HERE, and the dashboard must show the trail that actually
+            # decided the order — not an all-PASS snapshot from before the approval gate.
+            db.update_guardrail(decision_id, recheck)
             if not recheck["passed"]:
                 reasons = [
                     r["reason"]

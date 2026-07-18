@@ -156,16 +156,21 @@ export function ReasoningTrail({ decisionId }: { decisionId: string }) {
 
       <Section title="Order">
         {d.order ? (
-          <p className="flex items-center gap-2 font-mono text-sm tabular-nums text-ink">
-            <Badge ok={d.order.status === "filled"}>{d.order.status.toUpperCase()}</Badge>{" "}
-            <span>
-              {d.order.quantity != null && <>{d.order.quantity} sh</>}
-              {d.order.limit_price != null && <> @ ${d.order.limit_price}</>}
-              {d.order.broker_order_id && (
-                <span className="text-faint"> · ref {d.order.broker_order_id}</span>
-              )}
-            </span>
-          </p>
+          <>
+            <p className="flex items-center gap-2 font-mono text-sm tabular-nums text-ink">
+              <Badge ok={d.order.status === "filled"}>{d.order.status.toUpperCase()}</Badge>{" "}
+              <span>
+                {d.order.quantity != null && <>{d.order.quantity} sh</>}
+                {d.order.limit_price != null && <> @ ${d.order.limit_price}</>}
+                {d.order.broker_order_id && (
+                  <span className="text-faint"> · ref {d.order.broker_order_id}</span>
+                )}
+              </span>
+            </p>
+            {d.order.reason && (
+              <p className="mt-1.5 text-xs leading-relaxed text-down">— {d.order.reason}</p>
+            )}
+          </>
         ) : (
           <p className="text-sm text-faint">No order — hypothesis did not clear the pipeline.</p>
         )}
