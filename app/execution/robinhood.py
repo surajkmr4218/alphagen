@@ -83,7 +83,8 @@ class RobinhoodBroker:
         )
         results = self._payload(res).get("data", {}).get("results") or []
         row = results[0] if results else {}
-        return bool(row.get("tradeable", False))
+        tradeable_str = row.get("tradeable", False)
+        return tradeable_str.lower() == "true"
 
     def market_open(self, now: dt.datetime | None = None) -> bool:
         # Deterministic local check (no network): NYSE regular hours, Mon-Fri 09:30-16:00 ET.
@@ -109,6 +110,66 @@ class RobinhoodBroker:
         orders = self._payload(res).get("data", {}).get("orders") or []
         return orders[0] if orders else {}
 
+    async def portfolio(self) -> dict[str, float | None]:
+        """Account snapshot: {total_equity, cash, buying_power}. Values arrive as STRINGS.
+
+        The exact get_portfolio field names are defensive guesses (several candidates each);
+        anything unresolvable falls back to get_accounts, then to None — a partial snapshot
+        beats an exception on the dashboard's 30s poll.
+        """
+        res = await self._call("get_portfolio", account_number=self.account_number)
+        data = _flatten(self._payload(res).get("data", {}))
+
+        out = {
+            "total_equity": _first_float(data, "total_equity", "equity", "market_value",
+                                          "total_market_value", "portfolio_value"),
+            "cash": _first_float(data, "cash", "cash_balance", "uncleared_cash",
+                                 "cash_available_for_withdrawal"),
+            "buying_power": _first_float(data, "buying_power", "cash_buying_power",
+                                         "crypto_buying_power"),
+        }
+        if any(v is None for v in out.values()):
+            accounts = await self._call("get_accounts")
+            rows = self._payload(accounts).get("data", {})
+            rows = rows.get("results") or rows.get("accounts") or []
+            row = _flatten(rows[0]) if rows else {}
+            for key, names in {
+                "total_equity": ("total_equity", "equity", "portfolio_value"),
+                "cash": ("cash", "cash_balance"),
+                "buying_power": ("buying_power",),
+            }.items():
+                if out[key] is None:
+                    out[key] = _first_float(row, *names)
+        return out
+
+
+def _flatten(d: dict, prefix: str = "") -> dict:
+    """One-level-deep flatten so nested payloads ({'equities': {'equity': ...}}) are
+    searchable by leaf key alongside top-level keys."""
+    flat: dict = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            for k2, v2 in v.items():
+                flat.setdefault(k2, v2)
+        else:
+            flat.setdefault(k, v)
+    return flat
+
+
+def _first_float(d: dict, *keys: str) -> float | None:
+    for k in keys:
+        v = d.get(k)
+        if v is None:
+            continue
+        # Robinhood wraps some money values as {"amount": "12.34", "currency_code": "USD"}.
+        if isinstance(v, dict):
+            v = v.get("amount")
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
 
 class StubBroker:
     """Paper-mode broker: deterministic fakes, no network, no real orders. Injected when
@@ -132,3 +193,6 @@ class StubBroker:
 
     async def order_status(self, order_id: str) -> dict[str, Any]:
         return {"id": order_id, "state": "filled", "_stub": True}
+
+    async def portfolio(self) -> dict[str, float | None]:
+        return {"total_equity": 50.0, "cash": 25.0, "buying_power": 25.0}
