@@ -20,8 +20,8 @@ def build_graph(checkpointer):
 
     No broker/db/cfg are injected here anymore: the execute node resolves its own resources at
     run time (see execution_node), which is what lets a resumed run work on a live session. The
-    caller passes the process-wide AsyncPostgresSaver so paused threads survive across requests,
-    restarts, and both gunicorn workers.
+    caller passes the process-wide AsyncPostgresSaver so paused threads survive across requests
+    and process restarts (checkpoint state lives in Postgres, not in memory).
     """
     from langgraph.graph import END, START, StateGraph
 
