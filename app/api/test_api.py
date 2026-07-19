@@ -597,7 +597,7 @@ def _mcp_broker(payload):
     """Real RobinhoodBroker with _call faked at the MCP boundary (content-block shape)."""
     from app.execution.robinhood import RobinhoodBroker
 
-    broker = RobinhoodBroker("570244269", auth=None)
+    broker = RobinhoodBroker("000000000", auth=None)
     calls: list[str] = []
 
     async def fake_call(name, **kwargs):
