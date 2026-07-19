@@ -1,4 +1,9 @@
 # Never bake these into the image (rebuilt/injected at runtime, or host-specific)
+.robinhood_token.json
+docs
+aapl_10k_raw.txt
+aapl_10k_sections.json
+web
 .venv
 **/__pycache__
 *.pyc
