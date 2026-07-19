@@ -51,4 +51,4 @@ async def _run_pipeline(graph: Any, decision_id: str, ticker: str, clerk_user_id
 
 def _mark(decision_id: str, clerk_user_id: str, status: str, *, reason: str | None = None) -> None:
     with session_scope(clerk_user_id) as db:  # RLS GUC = the tenant that owns the row
-        ExecutionRepo(db).mark_run_status(decision_id, status, reason=reason)
+        ExecutionRepo(db, clerk_user_id).mark_run_status(decision_id, status, reason=reason)

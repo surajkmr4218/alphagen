@@ -83,10 +83,13 @@ def get_db(clerk_user_id: str = Depends(current_user_id)) -> Iterator[Session]:
     with session_scope(clerk_user_id) as db:
         yield db
 
-def get_repo(db: Session = Depends(get_db)) -> ExecutionRepo:
-    # The owner endpoints talk to the DB through the repo verbs, not raw ORM — and they
-    # inherit the RLS-scoped session get_db already opened.
-    return ExecutionRepo(db)
+def get_repo(
+    db: Session = Depends(get_db), clerk_user_id: str = Depends(current_user_id)
+) -> ExecutionRepo:
+    # The owner endpoints talk to the DB through the repo verbs, not raw ORM. The tenant is
+    # passed EXPLICITLY (WHERE user_id = ...) — the session's RLS GUC is backstop only,
+    # since RLS silently no-ops on a superuser connection.
+    return ExecutionRepo(db, clerk_user_id)
 
 def current_user(
     clerk_user_id: str = Depends(current_user_id), db: Session = Depends(get_db)
@@ -103,9 +106,10 @@ def get_read_repo(user: User = Depends(current_user)) -> Iterator[ExecutionRepo]
     # Dashboard reads: the owner sees their own tenant; everyone else (public/recruiter)
     # sees the seeded demo tenant. The tenant key goes into the RLS GUC, so the DB —
     # not endpoint code — enforces the scoping.
+    # ONE tenant value feeds both layers (explicit WHERE + RLS GUC) so they can't disagree.
     tenant = user.clerk_user_id if user.role == "owner" else settings.demo_user_id
     with session_scope(tenant) as db:
-        yield ExecutionRepo(db)
+        yield ExecutionRepo(db, tenant)
 
 
 def require_owner(user: User = Depends(current_user)) -> User:   # current_user from Week 6

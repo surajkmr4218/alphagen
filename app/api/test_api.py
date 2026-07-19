@@ -238,7 +238,7 @@ def _patch_runner(monkeypatch, repo, *, corpus_exc=None, graph_exc=None, parked=
     monkeypatch.setattr(api_runs, "run_graph", fake_run_graph)
     monkeypatch.setattr(api_runs, "session_scope",
                         lambda uid: contextlib.nullcontext(None))
-    monkeypatch.setattr(api_runs, "ExecutionRepo", lambda db: repo)
+    monkeypatch.setattr(api_runs, "ExecutionRepo", lambda db, user_id=None: repo)
     return FakeGraph(next_=("execute",) if parked else ())
 
 
@@ -533,6 +533,43 @@ def test_list_decisions_with_fills_joins_and_dedupes(db_session):
     dec, order, outcome = rows[0]
     assert dec.decision_id == "d-x" and order.status == "filled"
     assert outcome.fill_price in (100.0, 101.0)
+
+
+# --- tenant scoping: repo reads must filter by user_id (defense-in-depth vs RLS) ----
+# sqlite has no RLS, so these tests prove the PYTHON layer alone keeps tenants apart.
+
+
+def _seed_two_tenants(db_session):
+    for uid, did, ret in (("owner-1", "d-own", 0.05), ("intruder", "d-other", 0.01)):
+        db_session.add(Decision(decision_id=did, ticker="AAPL", user_id=uid,
+                                human_decision="approved", passed=True,
+                                created_at=datetime.now(UTC)))
+        db_session.add(Order(decision_id=did, user_id=uid, symbol="AAPL", side="buy",
+                             order_type="market", size_usd=5.0, qty=0.05, status="filled",
+                             created_at=datetime.now(UTC)))
+        db_session.add(Outcome(decision_id=did, user_id=uid, fill_price=100.0,
+                               forward_return=ret, spy_return=0.0))
+    db_session.commit()
+
+
+def test_repo_reads_are_tenant_scoped(db_session):
+    _seed_two_tenants(db_session)
+    repo = ExecutionRepo(db_session, "owner-1")
+
+    assert [d.decision_id for d in repo.list_decisions()] == ["d-own"]
+    assert [d.decision_id for d, _, _ in repo.list_decisions_with_fills()] == ["d-own"]
+    assert repo.get_decision("d-own") is not None
+    assert repo.get_decision("d-other") is None          # other tenant's trail -> invisible
+    assert repo.get_order("d-other") is None
+    assert repo.eval_summary()["n_resolved"] == 1        # performance panel: own rows only
+
+
+def test_repo_without_tenant_stays_unscoped_for_system_paths(db_session):
+    # Cron/execution sessions pass no tenant — they must keep seeing everything.
+    _seed_two_tenants(db_session)
+    repo = ExecutionRepo(db_session)
+    assert len(repo.list_decisions()) == 2
+    assert repo.eval_summary()["n_resolved"] == 2
 
 
 # --- RobinhoodBroker.portfolio: field names pinned to the observed payload ----------

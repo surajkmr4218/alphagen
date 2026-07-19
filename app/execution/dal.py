@@ -16,11 +16,21 @@ class ExecutionRepo:
     sessions, the approval endpoints and the reconciliation job). Business code never issues
     raw ORM queries — it calls named methods — which keeps the query logic in one place and
     lets tests inject a fake repo with the same surface.
+
+    `user_id` is the tenant scope for the read verbs: request-bound repos MUST pass it
+    (RLS alone is not trusted — a superuser connection bypasses it silently). None means
+    a trusted system session (execution node, reconcile cron) that legitimately sees
+    every tenant's rows.
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, user_id: str | None = None) -> None:
         self.session = session
+        self.user_id = user_id
         self._OPEN = {"queued", "submitted", "confirmed", "partially_filled", "pending"}
+
+    def _scoped(self, stmt, col):
+        """Append the tenant predicate unless this is an unscoped system repo."""
+        return stmt.where(col == self.user_id) if self.user_id is not None else stmt
 
     # --- consumed by execution_node (Session 2) -------------------------------
     def order_exists(self, decision_id: str) -> dict | None:
@@ -173,7 +183,7 @@ class ExecutionRepo:
         window don't count — a worker that died mid-run must not brick the ticker."""
         cutoff = datetime.now(UTC) - timedelta(minutes=stale_minutes)
         return self.session.scalars(
-            select(Decision).where(
+            self._scoped(select(Decision), Decision.user_id).where(
                 Decision.ticker == ticker.upper(),
                 Decision.human_decision == "running",
                 Decision.created_at >= cutoff,
@@ -185,7 +195,7 @@ class ExecutionRepo:
         is actually parked at the execute interrupt (aget_state) — legacy critic-rejected
         rows sit at 'pending' forever without being parked and must not block."""
         return list(self.session.scalars(
-            select(Decision).where(
+            self._scoped(select(Decision), Decision.user_id).where(
                 Decision.ticker == ticker.upper(), Decision.human_decision == "pending"
             )
         ))
@@ -206,11 +216,12 @@ class ExecutionRepo:
         self.session.commit()
 
     # --- consumed by the dashboard read endpoints (Session 6) ------------------
-    # No explicit user_id filters here: the session's RLS GUC (app.user_id) already
-    # scopes decisions/orders/outcomes to one tenant — another tenant's rows are invisible.
+    # Tenant scoping is EXPLICIT (self.user_id) with the RLS GUC as backstop only —
+    # RLS silently no-ops on a superuser connection.
     def list_decisions(self, limit: int = 20) -> list[Decision]:
         return list(self.session.scalars(
-            select(Decision).order_by(Decision.created_at.desc()).limit(limit)
+            self._scoped(select(Decision), Decision.user_id)
+            .order_by(Decision.created_at.desc()).limit(limit)
         ))
 
     def list_decisions_with_fills(
@@ -219,7 +230,7 @@ class ExecutionRepo:
         """Decisions newest-first with their order + outcome in ONE query (no N+1).
         Outcome has no uniqueness on decision_id, so dedupe to the first-seen row."""
         rows = self.session.execute(
-            select(Decision, Order, Outcome)
+            self._scoped(select(Decision, Order, Outcome), Decision.user_id)
             .outerjoin(Order, Order.decision_id == Decision.decision_id)
             .outerjoin(Outcome, Outcome.decision_id == Decision.decision_id)
             .order_by(Decision.created_at.desc())
@@ -235,19 +246,29 @@ class ExecutionRepo:
         return out
 
     def get_decision(self, decision_id: str) -> Decision | None:
-        return self.session.get(Decision, decision_id)
+        # Scoped select, not session.get: another tenant's decision_id must 404, not leak
+        # its trail to whoever guesses the UUID.
+        return self.session.scalars(
+            self._scoped(select(Decision), Decision.user_id)
+            .where(Decision.decision_id == decision_id)
+        ).first()
 
     def get_order(self, decision_id: str) -> dict | None:
-        o = self.session.get(Order, decision_id)
+        o = self.session.scalars(
+            self._scoped(select(Order), Order.user_id)
+            .where(Order.decision_id == decision_id)
+        ).first()
         return _order_to_dict(o) if o else None
 
     def eval_summary(self) -> dict:
         """Live performance from resolved Outcomes."""
         resolved = list(self.session.scalars(
-            select(Outcome).where(Outcome.forward_return.isnot(None))
+            self._scoped(select(Outcome), Outcome.user_id)
+            .where(Outcome.forward_return.isnot(None))
         ))
         pending = self.session.scalar(
-            select(func.count()).select_from(Outcome).where(Outcome.forward_return.is_(None))
+            self._scoped(select(func.count()).select_from(Outcome), Outcome.user_id)
+            .where(Outcome.forward_return.is_(None))
         ) or 0
         n = len(resolved)
         excess = [o.forward_return - o.spy_return for o in resolved if o.spy_return is not None]
