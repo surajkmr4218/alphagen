@@ -46,5 +46,9 @@ class Settings(BaseSettings):
     # Non-owner (public) users read this tenant's rows on the dashboard endpoints.
     demo_user_id: str = "demo"
 
+    # Comma-separated browser origins allowed by CORS. Local Vite dev by default;
+    # production adds the Vercel domain (exact origins only — never "*", we send credentials).
+    allowed_origins: str = "http://localhost:5173"
+
 
 settings = Settings()

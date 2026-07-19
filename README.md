@@ -70,7 +70,7 @@ One live trade has completed the full lifecycle — proposed, cited, critiqued, 
 - **Run lifecycle that can't leak** — background runs are `asyncio` tasks with hard references (guarding against mid-flight garbage collection) and a catch-all failure path: every run terminates in a DB-visible `pending` / `rejected` / `failed` state with a recorded reason. No zombie runs.
 - **Defense-in-depth against hallucination** — JSON-schema-constrained LLM output, an advisory critic pass, and *deterministic* guardrails with a hard citations rule that verifies every source against the actual evidence bundle.
 - **Layered risk controls** — a ticker allowlist, per-trade and total-exposure notional caps, a daily trade rate limit, and a daily-loss kill-switch that halts all trading, all enforced as hard rules independent of any model output.
-- **Multi-tenant isolation, two layers deep** — every session sets the tenant key as a GUC and every query scopes explicitly by `user_id`; beneath that, Postgres **row-level security** policies are fail-closed (a missing tenant key matches zero rows). Clerk handles authentication end-to-end (JWT-verified API, React SDK on the frontend). See Limitations for an honest note on the current RLS enforcement gap.
+- **Multi-tenant isolation, two layers deep** — every session sets the tenant key as a GUC and every query scopes explicitly by `user_id`; beneath that, Postgres **row-level security** policies are fail-closed (a missing tenant key matches zero rows) and actually enforce: the app connects as a dedicated `NOSUPERUSER` role, since superusers silently bypass RLS. Clerk handles authentication end-to-end (JWT-verified API, React SDK on the frontend).
 - **Real brokerage integration** — Robinhood's Trading MCP server via `langchain-mcp-adapters`, with full OAuth token lifecycle management and Fernet-encrypted token storage at rest.
 - **Continuous evaluation** — a golden-dataset RAG eval harness and A/B embedding comparisons keep retrieval quality measurable rather than vibes-based (see the metrics table above); guardrails and API behavior are covered by pytest.
 
@@ -104,11 +104,15 @@ Requires Docker, [uv](https://docs.astral.sh/uv/), and Node 20+.
 # 1. Configure environment (API keys, Clerk, database URL)
 cp .env.example .env   # then fill in values
 
-# 2. Start Postgres (pgvector) + API
-docker compose up --build
+# 2. Start Postgres and bootstrap it (pgvector extension + NOSUPERUSER runtime role —
+#    superusers bypass row-level security, so the app never connects as one)
+docker compose up -d db
+docker compose exec -T db psql -U app -d alphagen \
+  -v pw="$(grep '^APP_DB_PASSWORD=' .env | cut -d= -f2)" < scripts/bootstrap_db.sql
 
-# 3. Apply database migrations
+# 3. Apply database migrations, then start the API
 uv run alembic upgrade head
+docker compose up -d --build api
 
 # 4. Start the frontend
 cd web && npm install && npm run dev
@@ -144,7 +148,6 @@ alembic/           # schema migrations
 Things this project deliberately doesn't do, and gaps I know about:
 
 - **It is not trying to generate alpha.** Long-only, one hypothesis per run, a small ticker allowlist, and $5-per-trade caps. The interesting problem here is the *system* — grounded reasoning, safety rails, durable orchestration around real money — not the strategy. The `n = 1` live-trade stat above is proof of plumbing, not performance.
-- **RLS is defense-in-depth, not yet the enforcement layer.** The Postgres policies are written fail-closed, but the app currently connects as a superuser role, which bypasses RLS — so tenant isolation is actually enforced by the session-scoped GUC and explicit `user_id` predicates in the data-access layer. Moving the runtime to a `NOSUPERUSER` role so the policies bite is the next hardening step.
 - **The golden dataset is 15 queries**, and the CI metrics score the dense retrieval stage (the full hybrid + rerank path runs in production but isn't what the floors measure). Big enough to catch regressions; not a benchmark, and growing it is ongoing.
 - **Retrieval evals measure retrieval, not end-to-end thesis quality.** Citation resolution guarantees hypotheses cite *real* passages; whether a thesis is *good* is still judged by the critic and the human, not a metric.
 - **Single-process assumptions.** Embedding and reranking models run in-process (lazy-loaded), and the reconciliation scheduler lives inside the API process. Fine at this scale; a real deployment would split them out.
