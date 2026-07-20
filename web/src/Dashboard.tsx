@@ -12,6 +12,17 @@ const decisionBadge = (decision: string) =>
   : decision === "rejected" || decision === "failed" ? "badge-down"
   : "badge-warn";
 
+// "approved" only records the human verdict — check-twice can still block the order at
+// execution. Once an order row has a real status, show what actually happened to it.
+const statusBadge = (d: DecisionSummary): { label: string; cls: string } => {
+  if (d.human_decision === "approved" && d.order_status && d.order_status !== "pending") {
+    if (d.order_status === "filled") return { label: "filled", cls: "badge-up" };
+    if (d.order_status === "rejected") return { label: "blocked", cls: "badge-down" };
+    return { label: "submitted", cls: "badge-up" }; // queued/confirmed/partially_filled
+  }
+  return { label: d.human_decision, cls: decisionBadge(d.human_decision) };
+};
+
 const TABS = ["queue", "approved", "rejected", "all"] as const;
 type Tab = (typeof TABS)[number];
 
@@ -79,11 +90,11 @@ export default function Dashboard({ me }: { me: Me }) {
                     {pct(d.unrealized_pnl_pct)}
                   </span>
                 )}
-                <span className={`badge ${decisionBadge(d.human_decision)}`}>
+                <span className={`badge ${statusBadge(d).cls}`}>
                   {d.human_decision === "running" ? (
                     <span className="animate-pulse">running</span>
                   ) : (
-                    d.human_decision
+                    statusBadge(d).label
                   )}
                 </span>
               </span>
