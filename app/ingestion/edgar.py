@@ -182,19 +182,30 @@ _CORPUS_SECTIONS = ("item 1a", "item 7")
 
 
 def ensure_corpus(ticker: str, form: str = "10-K", n: int = 2) -> None:
-    """Make build_diff_bundle non-empty for a ticker: ingest its two most-recent same-form
-    filings + chunk the current one, iff no Filing rows exist yet. SYNC (EDGAR fetch +
-    local embeddings) — call via asyncio.to_thread from async code. Self-contained session:
-    filings/chunks are shared corpus tables, not RLS'd (same as research_node)."""
+    """Make build_diff_bundle non-empty for a ticker: its n most-recent same-form filings
+    stored (diffing needs current + prior) and the newest one chunked for retrieval.
+    COMPLETES a partial corpus — a ticker ingested back when only the latest filing was
+    fetched gets its prior filing backfilled here instead of early-returning forever.
+    SYNC (EDGAR fetch + local embeddings) — call via asyncio.to_thread from async code.
+    Self-contained session: filings/chunks are shared corpus tables, not RLS'd (same as
+    research_node)."""
     from app.db import SessionLocal
+    from app.models import Chunk
     from app.rag.chunk import persist_filing_chunks
 
+    tkr = ticker.upper()
     with SessionLocal() as db:
-        if db.scalars(select(Filing.id).where(Filing.ticker == ticker.upper())).first():
-            return
-        with httpx.Client() as client:
-            filings = ingest_recent(ticker, cik_for(ticker, client), form, n, db, client)
-        latest = filings[0]
-        present = [s for s in _CORPUS_SECTIONS if s in latest.sections]
-        # do_blurbs=False mirrors the golden ingest: deterministic, no Gemini dependency.
-        persist_filing_chunks(db, latest, sections=present, do_blurbs=False)
+        same_form = db.scalars(
+            select(Filing).where(Filing.ticker == tkr, Filing.form_type == form)
+            .order_by(Filing.filed_at.desc())
+        ).all()
+        if len(same_form) < n:
+            with httpx.Client() as client:
+                # ingest_recent skips accessions already stored, so this only fetches gaps.
+                same_form = ingest_recent(tkr, cik_for(tkr, client), form, n, db, client)
+        latest = same_form[0]
+        chunked = db.scalars(select(Chunk.id).where(Chunk.filing_id == latest.id)).first()
+        if chunked is None:
+            present = [s for s in _CORPUS_SECTIONS if s in latest.sections]
+            # do_blurbs=False mirrors the golden ingest: deterministic, no Gemini dependency.
+            persist_filing_chunks(db, latest, sections=present, do_blurbs=False)
