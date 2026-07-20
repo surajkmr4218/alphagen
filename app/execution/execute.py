@@ -5,7 +5,7 @@ from datetime import date
 from typing import Any
 
 from app.config import guardrail_cfg
-from app.db import SessionLocal
+from app.db import session_scope
 from app.execution.dal import ExecutionRepo
 
 # Reuse the Week-5 deterministic guardrails. Only a subset is time-sensitive.
@@ -41,13 +41,14 @@ def _load_user(session: Any, clerk_user_id: str) -> User:
 async def execution_node(state: dict[str, Any], config: Any = None) -> dict[str, Any]:
     """Deterministic execution. Never raises — broker/tool errors become a rejected Order.
 
-    Resolves its OWN session/broker/cfg: the graph is a durable, process-wide singleton, so 
+    Resolves its OWN session/broker/cfg: the graph is a durable, process-wide singleton, so
     a run resumed minutes after the approval interrupt cannot lean on the original
-    request Session — that one is closed. Opening a fresh SessionLocal here, keyed off the
-    checkpointed clerk_user_id, is exactly what makes approve-to-resume work.
+    request Session — that one is closed. The fresh session MUST carry the RLS GUC for the
+    checkpointed tenant: under the NOSUPERUSER runtime role an unscoped session reads zero
+    rows (fail-closed) and every order write dies with InsufficientPrivilege.
     """
-    with SessionLocal() as session:          # fresh — NOT a closed request session
-        db = ExecutionRepo(session)
+    with session_scope(state["clerk_user_id"]) as session:   # fresh + RLS GUC set
+        db = ExecutionRepo(session, state["clerk_user_id"])
         broker = _build_broker(
             _load_user(session, state["clerk_user_id"]),
             session,
@@ -127,6 +128,7 @@ async def execution_node(state: dict[str, Any], config: Any = None) -> dict[str,
                 "symbol": symbol,
                 "side": "buy",
                 "order_type": otype,
+                "size_usd": float(h["size_usd"]),
                 "quantity": qty,
                 "submitted_price": price,
                 "ref_id": args["ref_id"],

@@ -45,7 +45,11 @@ class ExecutionRepo:
 
     def write_order(self, decision_id: str, order: dict[str, Any]) -> None:
         """Upsert the Order row for this decision with the execution result (or rejection)."""
-        o = self.session.get(Order, decision_id) or Order(decision_id=decision_id)
+        # A fresh row (placeholder invisible or never written) must carry the tenant key —
+        # under enforced RLS an INSERT with user_id NULL is InsufficientPrivilege.
+        o = self.session.get(Order, decision_id) or Order(
+            decision_id=decision_id, user_id=self.user_id
+        )
         if order.get("status") is not None:
             o.status = order["status"]
         if order.get("broker_order_id") is not None:
@@ -58,6 +62,8 @@ class ExecutionRepo:
             o.order_type = order["order_type"]
         if order.get("quantity") is not None:
             o.qty = float(order["quantity"])
+        if order.get("size_usd") is not None:
+            o.size_usd = float(order["size_usd"])
         if order.get("reason") is not None:
             o.reason = order["reason"]
         self.session.merge(o)
