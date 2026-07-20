@@ -337,9 +337,14 @@ def reasoning_trail(decision_id: str, repo: ExecutionRepo = Depends(get_read_rep
     if d is None:                                         # missing OR another tenant's — same 404
         raise HTTPException(status_code=404, detail="decision not found")
     ev = d.evidence or {}                                 # pre-migration rows have no evidence
+    # build_diff_bundle annotates diffs per-passage (passages[].diff). Surface the first
+    # (highest-ranked) annotated passage; null only when nothing changed YoY or there is
+    # no prior same-form filing to diff against.
+    p = next((p for p in ev.get("passages") or [] if p.get("diff")), None)
+    diff = {"section": p.get("section"), **p["diff"]} if p is not None else None
     return {
         "ticker": d.ticker,
-        "triggering_diff": ev.get("diff"),         # {section, added, removed, semantic_drift}
+        "triggering_diff": diff,                   # {section, added, removed, semantic_drift}
         "cited_passages": ev.get("passages"),      # [{accession, section, text}]
         "signals": ev.get("signals"),              # insider/scores/news/consensus
         "hypothesis": d.hypothesis,                # direction, size_usd, confidence, rationale
