@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useApi, type Trail } from "../lib/api";
 
+// A 10-K diff can carry 150+ changed segments per section — render only the first few;
+// the header keeps the true totals so nothing is silently hidden.
+const MAX_DIFF_SEGMENTS = 10;
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="panel">
@@ -48,7 +52,7 @@ export function ReasoningTrail({ decisionId }: { decisionId: string }) {
               </span>{" "}
               · {diff.added?.length ?? 0} additions
             </p>
-            {(diff.added ?? []).map((s, i) => (
+            {(diff.added ?? []).slice(0, MAX_DIFF_SEGMENTS).map((s, i) => (
               <p
                 key={i}
                 className="mb-1.5 border-l-2 border-up/60 bg-up/8 px-3 py-1.5 font-mono text-[13px] leading-relaxed text-ink"
@@ -57,7 +61,12 @@ export function ReasoningTrail({ decisionId }: { decisionId: string }) {
                 {s}
               </p>
             ))}
-            {(diff.removed ?? []).map((s, i) => (
+            {(diff.added?.length ?? 0) > MAX_DIFF_SEGMENTS && (
+              <p className="mb-1.5 font-mono text-xs text-faint">
+                … {(diff.added?.length ?? 0) - MAX_DIFF_SEGMENTS} more additions not shown
+              </p>
+            )}
+            {(diff.removed ?? []).slice(0, MAX_DIFF_SEGMENTS).map((s, i) => (
               <p
                 key={i}
                 className="mb-1.5 border-l-2 border-down/60 bg-down/8 px-3 py-1.5 font-mono text-[13px] leading-relaxed text-muted"
@@ -66,6 +75,11 @@ export function ReasoningTrail({ decisionId }: { decisionId: string }) {
                 {s}
               </p>
             ))}
+            {(diff.removed?.length ?? 0) > MAX_DIFF_SEGMENTS && (
+              <p className="font-mono text-xs text-faint">
+                … {(diff.removed?.length ?? 0) - MAX_DIFF_SEGMENTS} more removals not shown
+              </p>
+            )}
           </>
         ) : (
           <p className="text-sm text-faint">No diff recorded.</p>
