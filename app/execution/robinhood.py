@@ -100,7 +100,15 @@ class RobinhoodBroker:
         # args already mapped to the EXACT place_equity_order schema by execute.py.
         args.setdefault("account_number", self.account_number)
         res = await self._call("place_equity_order", **args)
-        return self._payload(res).get("data", {})
+        data = self._payload(res).get("data", {})
+        # The created order is nested (data.order / data.orders[0] — same family as
+        # get_equity_orders' data.orders). Reading id/state off `data` directly left
+        # broker_order_id NULL, hiding the order from the reconcile sweep forever.
+        if isinstance(data.get("order"), dict):
+            return data["order"]
+        if isinstance(data.get("orders"), list) and data["orders"]:
+            return data["orders"][0]
+        return data
 
     async def order_status(self, order_id: str) -> dict[str, Any]:
         # get_equity_orders takes a singular order_id + account_number; results are data.orders.
