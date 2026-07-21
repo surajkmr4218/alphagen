@@ -16,6 +16,7 @@ export function NewTradeForm({ onSelect }: { onSelect: (decisionId: string) => v
     Promise.all([
       qc.invalidateQueries({ queryKey: ["decisions"] }),
       qc.invalidateQueries({ queryKey: ["queue"] }),
+      qc.invalidateQueries({ queryKey: ["trail"] }),
     ]);
 
   // Poll the submitted run until it lands, then refresh the lists and stop.

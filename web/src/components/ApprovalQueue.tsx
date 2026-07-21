@@ -13,6 +13,9 @@ export function ApprovalQueue() {
       Promise.all([
         qc.invalidateQueries({ queryKey: ["queue"] }),
         qc.invalidateQueries({ queryKey: ["decisions"] }),
+        qc.invalidateQueries({ queryKey: ["trail"] }),
+        qc.invalidateQueries({ queryKey: ["account"] }),
+        qc.invalidateQueries({ queryKey: ["eval"] }),
       ]),
   });
 

@@ -48,6 +48,16 @@ export default function Dashboard({ me }: { me: Me }) {
   const shown = (decisions ?? []).filter((d) => inTab(d, tab));
   const selected = picked ?? shown[0]?.decision_id ?? decisions?.[0]?.decision_id;
 
+  // The open trail should poll only while its decision can still change: the pipeline is
+  // running, or an approved order hasn't reached a terminal fill/reject yet.
+  const sel = (decisions ?? []).find((d) => d.decision_id === selected);
+  const live =
+    sel != null &&
+    (sel.human_decision === "running" ||
+      (sel.human_decision === "approved" &&
+        sel.order_status != null &&
+        !["filled", "rejected"].includes(sel.order_status)));
+
   return (
     <main className="space-y-5 p-6">
       <AccountBar />
@@ -103,7 +113,7 @@ export default function Dashboard({ me }: { me: Me }) {
         </section>
 
         {selected ? (
-          <ReasoningTrail decisionId={selected} />
+          <ReasoningTrail decisionId={selected} live={live} />
         ) : (
           <p className="p-4 text-sm text-faint">Select a hypothesis to see its reasoning trail.</p>
         )}

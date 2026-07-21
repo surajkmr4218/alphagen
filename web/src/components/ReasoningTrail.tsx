@@ -21,11 +21,14 @@ function Badge({ ok, children }: { ok: boolean; children: React.ReactNode }) {
 // Walks the pipeline top to bottom (diff -> passages -> signals -> hypothesis -> critic ->
 // guardrail -> order) so a reader sees WHY the system wanted this trade. Null fields are
 // normal (a rejected hypothesis has no order) — each section renders a fallback.
-export function ReasoningTrail({ decisionId }: { decisionId: string }) {
+export function ReasoningTrail({ decisionId, live = false }: { decisionId: string; live?: boolean }) {
   const api = useApi();
   const { data: d } = useQuery({
     queryKey: ["trail", decisionId],
     queryFn: () => api<Trail>(`/decisions/${decisionId}/trail`),
+    // `live` = this decision can still change underneath us (pipeline running, or an
+    // order awaiting its fill) — poll until it reaches a terminal state, then stop.
+    refetchInterval: live ? 4_000 : false,
   });
   if (!d) return <div className="p-4 font-mono text-sm text-muted">Loading trail…</div>;
 
