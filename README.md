@@ -2,7 +2,7 @@
 
 **An autonomous, human-in-the-loop equity research and trading platform.** AlphaGen ingests SEC filings, detects what *changed* between filings, grounds LLM-generated trade hypotheses in cited evidence, enforces deterministic risk guardrails, and (only after explicit human approval) executes live orders through Robinhood.
 
-https://github.com/surajkmr4218/alphagen/raw/main/alphagen_demo.mp4
+![AlphaGen demo — submitting a ticker, watching the multi-agent pipeline run, and approving a trade from the queue](alphagen_demo.gif)
 
 ---
 
