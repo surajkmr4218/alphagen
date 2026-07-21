@@ -53,14 +53,22 @@ class RobinhoodBroker:
         langchain-mcp-adapters returns MCP *content blocks* (e.g. {"type":"text","text":...});
         the data we want is a JSON string inside the text block, and Robinhood nests it all
         under `data`. This flattens both layers so callers see one dict.
+
+        A block can also carry plain text (an error/notice, or a summary preceding the JSON
+        block). Return the first block that parses; if none do, raise with the raw text —
+        it is the only record of what the broker said, and it must reach order.reason.
         """
         blocks = res if isinstance(res, list) else [res]
-        for b in blocks:
-            text = b.get("text") if isinstance(b, dict) else None
-            if text:
+        texts = [b["text"] for b in blocks if isinstance(b, dict) and b.get("text")]
+        for text in texts:
+            try:
                 return json.loads(text)
+            except json.JSONDecodeError:
+                continue
         if isinstance(res, dict) and "data" in res:  # already-structured fallback
             return res
+        if texts:
+            raise RuntimeError(f"broker returned non-JSON response: {' | '.join(texts)[:300]!r}")
         raise RuntimeError(f"unexpected MCP result shape: {res!r}")
 
     async def get_quote(self, symbol: str) -> float:
