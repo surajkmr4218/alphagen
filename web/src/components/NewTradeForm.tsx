@@ -2,15 +2,17 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, useApi, type NewRunResponse, type RunStatus } from "../lib/api";
 
+// makes sure the string is 1 to 5 uppercase letters
 const TICKER_RE = /^[A-Z]{1,5}$/;
 
-// Owner-only: the parent must not render this for public roles (hidden, not disabled).
+// Owner-only: the parent Dashboard omponent must not render this for public roles.
+// Note the destructuring of props into onSelect which re-renders parent Dashboard component.
 export function NewTradeForm({ onSelect }: { onSelect: (decisionId: string) => void }) {
   const api = useApi();
   const qc = useQueryClient();
   const [ticker, setTicker] = useState("");
   const [note, setNote] = useState<string | null>(null);
-  const [watching, setWatching] = useState<string | null>(null); // decision_id being polled
+  const [watching, setWatching] = useState<string | null>(null); // decision_id that's being polled
 
   const refresh = () =>
     Promise.all([
@@ -19,7 +21,7 @@ export function NewTradeForm({ onSelect }: { onSelect: (decisionId: string) => v
       qc.invalidateQueries({ queryKey: ["trail"] }),
     ]);
 
-  // Poll the submitted run until it lands, then refresh the lists and stop.
+  // useQuery used to poll the submitted run until it lands, then refresh the lists and stop.
   useQuery({
     queryKey: ["run", watching],
     queryFn: async () => {
@@ -50,7 +52,7 @@ export function NewTradeForm({ onSelect }: { onSelect: (decisionId: string) => v
     },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 409) {
-        // A run for this ticker is already live — jump to its trail instead of erroring.
+        // A run for this ticker is already live so jump to its trail instead of erroring.
         const detail = (err.body as { detail?: { decision_id?: string } })?.detail;
         if (detail?.decision_id) {
           onSelect(detail.decision_id);
@@ -72,6 +74,7 @@ export function NewTradeForm({ onSelect }: { onSelect: (decisionId: string) => v
       <form
         className="flex gap-2"
         onSubmit={(e) => {
+          {/* e.preventDefault() stops the browser's native form submission (which would reload the page) */}
           e.preventDefault();
           if (valid && !submit.isPending) submit.mutate(ticker);
         }}

@@ -12,8 +12,8 @@ const decisionBadge = (decision: string) =>
   : decision === "rejected" || decision === "failed" ? "badge-down"
   : "badge-warn";
 
-// "approved" only records the human verdict — check-twice can still block the order at
-// execution. Once an order row has a real status, show what actually happened to it.
+// "approved" records the human decision — check-twice can block the order.
+// Once an order row has a real status, show what actually happened to it.
 const statusBadge = (d: DecisionSummary): { label: string; cls: string } => {
   if (d.human_decision === "approved" && d.order_status && d.order_status !== "pending") {
     if (d.order_status === "filled") return { label: "filled", cls: "badge-up" };
@@ -28,7 +28,6 @@ type Tab = (typeof TABS)[number];
 
 const inTab = (d: DecisionSummary, tab: Tab) =>
   tab === "all" ? true
-  // Legacy critic-rejected rows sit at 'pending' with passed=false — not queue material.
   : tab === "queue" ? (d.human_decision === "pending" && d.passed) || d.human_decision === "running"
   : tab === "approved" ? d.human_decision === "approved"
   : d.human_decision === "rejected" || d.human_decision === "failed";

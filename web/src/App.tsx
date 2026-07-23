@@ -1,20 +1,15 @@
 import { useMe } from "./lib/api";
-
 import { Show, SignInButton, SignUpButton, UserButton } from "@clerk/react";
 import Dashboard from "./Dashboard";
 import LinkPrompt from "./components/LinkPrompt";
-
 import './App.css'
-
-
 
 function Gated() {
   const { data: me, isLoading, error } = useMe();
   if (isLoading) return <p className="p-8 font-mono text-sm text-muted">Loading…</p>;
   if (error) return <p className="p-8 font-mono text-sm text-down">Failed to load profile.</p>;
   if (!me) return <p className="p-8 font-mono text-sm text-muted">Loading…</p>;  // retry-gap: not loading, no error, no data yet
-  // Only the owner trades, so only the owner is gated on linking; public
-  // (recruiter) users go straight to the read-only demo dashboard.
+  // Only the owner trades, so only the owner is gated on linking;
   if (me.role === "owner" && !me.robinhood_linked) return <LinkPrompt />;
   return <Dashboard me={me} />;
 }

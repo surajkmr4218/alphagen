@@ -3,8 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 const BASE = import.meta.env.VITE_API_BASE_URL as string;
 
-// Typed API failure carrying the parsed body — handlers read structured details
-// (e.g. the 409 duplicate-run payload) instead of string-parsing the message.
+// Typed API failure carrying the parsed body so handlers read structured details
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -49,32 +48,31 @@ export function useMe() {
   return useQuery({ 
     queryKey: ["me"], 
     queryFn: () => api<Me>("/me") 
-  });  // drives tier + gate
+  });  
 }
 
-// --- Week-7 dashboard payloads. Every trail field can be null: a rejected
-// hypothesis has no order, a dropped one has no guardrail — render anyway.
+/*
+* Dashboard payloads - every trail field can be null.
+*/
 
 export interface DecisionSummary {
   decision_id: string;
   ticker: string;
   passed: boolean;
-  // running/failed are UI-submitted run states; pending covers both "awaiting approval"
-  // and legacy critic-rejected rows (the Queue tab additionally filters on `passed`).
   human_decision: "pending" | "approved" | "rejected" | "running" | "failed";
   created_at: string;
-  size_usd?: number | null;            // from the hypothesis; old rows may lack it
+  size_usd?: number | null;            
   order_status?: string | null;
-  entry?: number | null;               // fill_price * quantity, when filled
+  entry?: number | null;             
   current_price?: number | null;
-  unrealized_pnl_pct?: number | null;  // null when no fill or the quote failed
+  unrealized_pnl_pct?: number | null;   
 }
 
 export interface AccountSnapshot {
   total_equity: number | null;
   cash: number | null;
   buying_power: number | null;
-  stale: boolean;                      // true = broker blipped, showing last-known values
+  stale: boolean;                      
 }
 
 export interface NewRunResponse {
@@ -108,22 +106,44 @@ export interface GuardrailResult {
 
 export interface Trail {
   ticker: string;
-  triggering_diff: { section: string; semantic_drift: number; added: string[]; removed: string[] } | null;
-  cited_passages: { accession: string; section: string; text: string }[] | null;
+  triggering_diff: { 
+    section: string; 
+    semantic_drift: number; 
+    added: string[]; 
+    removed: string[] 
+  } | null;
+  cited_passages: { 
+    accession: string; 
+    section: string; 
+    text: string 
+  }[] | null;
   signals: Record<string, unknown> | null;
   hypothesis: Hypothesis | null;
-  critic_verdict: { verdict?: string; reasons?: string[] } | null;
-  guardrail: { passed?: boolean; results?: GuardrailResult[] } | null;
-  order: { status: string; reason?: string | null; quantity?: number | null; limit_price?: number | null; broker_order_id?: string | null } | null;
+  critic_verdict: { 
+    verdict?: string; 
+    reasons?: string[] 
+  } | null;
+  guardrail: { 
+    passed?: boolean; 
+    results?: GuardrailResult[] 
+  } | null;
+  order: { 
+    status: string; 
+    reason?: string | null; 
+    quantity?: number | null; 
+    limit_price?: number | null; 
+    broker_order_id?: string | null 
+  } | null;
 }
 
 export interface QueueItem {
   decision_id: string;
   ticker: string;
   hypothesis: Hypothesis;
-  // Advisory: the critic no longer ends a run — its verdict + reasons are shown here
-  // so the owner can weigh them before approving.
-  critic_verdict: { verdict?: string; reasons?: string[] } | null;
+  critic_verdict: { 
+    verdict?: string; 
+    reasons?: string[] 
+  } | null;
   guardrail: { passed?: boolean } | null;
 }
 

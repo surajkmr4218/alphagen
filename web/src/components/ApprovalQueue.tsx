@@ -1,15 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useApi, type QueueItem } from "../lib/api";
 
-// Owner-only: the parent must not render this for public roles (hidden, not disabled).
+// Owner-only: the parent component must not render this for public roles.
 export function ApprovalQueue() {
   const api = useApi();
   const qc = useQueryClient();
-  const { data } = useQuery({ queryKey: ["queue"], queryFn: () => api<QueueItem[]>("/owner/queue") });
+  const { data } = useQuery({ 
+    queryKey: ["queue"], 
+    queryFn: () => api<QueueItem[]>("/owner/queue") 
+  });
   const act = useMutation({
     mutationFn: (v: { id: string; action: "approve" | "reject" }) =>
       api(`/owner/${v.action}/${v.id}`, { method: "POST" }),
-    onSuccess: () =>
+    // onSettled, not onSuccess: an approve can flip the human_decision state in 
+    // the database and then fail during order execution -> UI must refetch on error too.
+    onSettled: () =>
       Promise.all([
         qc.invalidateQueries({ queryKey: ["queue"] }),
         qc.invalidateQueries({ queryKey: ["decisions"] }),
@@ -22,6 +27,13 @@ export function ApprovalQueue() {
   return (
     <section className="panel">
       <h3 className="eyebrow">Approval queue</h3>
+      {act.isPending && <p className="text-xs text-faint">Placing order — this can take ~30s…</p>}
+      {act.isError && (
+        <p className="mb-2 text-xs leading-relaxed" style={{ color: "var(--color-down)" }}>
+          Order action failed: {act.error instanceof Error ? act.error.message : String(act.error)}
+          {" "}Check the dashboard below for the order's actual state.
+        </p>
+      )}
       {!data?.length && <p className="text-sm text-faint">No pending approvals.</p>}
       {(data ?? []).map((q) => (
         <div
@@ -36,7 +48,7 @@ export function ApprovalQueue() {
             </span>
           </div>
           <p className="my-2.5 text-[13px] leading-relaxed text-muted">{q.hypothesis.rationale}</p>
-          {/* The critic is advisory — show its take so the human gate decides informed. */}
+          {/* The critic is advisory but show its take so the human decides with its information. */}
           {q.critic_verdict?.verdict && (
             <div className="mb-2.5">
               <span className={`badge ${q.critic_verdict.verdict === "accept" ? "badge-up" : "badge-down"}`}>

@@ -6,7 +6,10 @@ const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%
 // Live performance computed from resolved Outcomes (reconciliation job, Session 5).
 export function EvalPanel() {
   const api = useApi();
-  const { data: s } = useQuery({ queryKey: ["eval"], queryFn: () => api<EvalSummary>("/eval/summary") });
+  const { data: s } = useQuery({ 
+    queryKey: ["eval"], 
+    queryFn: () => api<EvalSummary>("/eval/summary") 
+  });
 
   const rows: [string, string][] = s
     ? [

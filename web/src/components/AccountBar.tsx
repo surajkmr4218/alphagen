@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useApi, type AccountSnapshot } from "../lib/api";
 
+// Intentional use of == instead of === to check for undefined and null below
 const usd = (v: number | null | undefined) =>
   v == null ? "—" : v.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
-// Full-width status strip above the dashboard grid. 30s poll — no websocket.
+// Full-width status strip above the dashboard grid.  
 export function AccountBar() {
   const api = useApi();
   const { data } = useQuery({
