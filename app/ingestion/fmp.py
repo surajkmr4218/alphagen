@@ -44,7 +44,7 @@ def _fresh(row: Signal, kind: str) -> bool:
     return age < ttl
 
 def _cached(session: Session, ticker: str, kind: str, path: str, **params: Any) -> Any:
-    """Return cached payload if fresh; else fetch from FMP, persist to Signal, return."""
+    """Return cached payload (in db) or fetch from FMP, persist to Signal, return."""
     stmt = (
         select(Signal)
         .where(Signal.ticker == ticker, Signal.kind == kind)
@@ -113,7 +113,7 @@ def consensus_skew(consensus: Any) -> dict:
     return {"skew": round(skew, 3), "n": int(total)}
 
 def attach_signals(session: Session, ticker: str, bundle: dict) -> dict:
-    """Take the Week-2 evidence bundle and bolt a structured `signals` block onto it."""
+    """Take the evidence bundle and bolt a structured `signals` block onto it."""
     scores = financial_scores(session, ticker)
     prices = eod_prices(session, ticker)
     consensus = analyst_consensus(session, ticker)

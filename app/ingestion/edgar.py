@@ -85,7 +85,7 @@ def fetch_doc(cik: str, accession: str, primary_doc: str, client: httpx.Client) 
 
 
 def split_sections(text: str) -> dict[str, str]:
-    """PURE: split a filing's flat text into {item_label: section_text}.
+    """Split a filing's flat text into {item_label: section_text}.
 
     Accumulates lines under the most recent 'Item N' heading seen. 10-K vs 10-Q
     numbering differs — tune the regex / heading detection per form if needed.
@@ -102,6 +102,7 @@ def split_sections(text: str) -> dict[str, str]:
     return {k: "\n".join(v).strip() for k, v in sections.items() if "".join(v).strip()}
 
 def ingest_latest(ticker: str, cik: str, form: str, db: Session, client: httpx.Client) -> Filing:
+    """ This is a deprecated version of ingest_recent() below. This is not used in pipeline"""
     subs = submissions(cik, client)
     meta = filings_of(subs, form, n=1)[0]
     text = fetch_doc(cik, meta["accession"], meta["primary_doc"], client)
@@ -182,13 +183,13 @@ _CORPUS_SECTIONS = ("item 1a", "item 7")
 
 
 def ensure_corpus(ticker: str, form: str = "10-K", n: int = 2) -> None:
-    """Make build_diff_bundle non-empty for a ticker: its n most-recent same-form filings
-    stored (diffing needs current + prior) and the newest one chunked for retrieval.
-    COMPLETES a partial corpus — a ticker ingested back when only the latest filing was
-    fetched gets its prior filing backfilled here instead of early-returning forever.
-    SYNC (EDGAR fetch + local embeddings) — call via asyncio.to_thread from async code.
-    Self-contained session: filings/chunks are shared corpus tables, not RLS'd (same as
-    research_node)."""
+    """Make sure n most-recent same-form filings stored (diffing needs current + prior) 
+    and the newest one chunked for retrieval. COMPLETES a partial corpus — a ticker 
+    ingested back when only the latest filing was fetched gets its prior filing backfilled 
+    here instead of early-returning forever. SYNC (EDGAR fetch + local embeddings) — call 
+    via asyncio.to_thread from async code. Self-contained session: filings/chunks are shared 
+    corpus tables, not tenant-scoped
+    (same as research_node)."""
     from app.db import SessionLocal
     from app.models import Chunk
     from app.rag.chunk import persist_filing_chunks
