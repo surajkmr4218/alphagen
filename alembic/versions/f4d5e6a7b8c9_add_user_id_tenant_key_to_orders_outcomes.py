@@ -1,8 +1,7 @@
 """add user_id tenant key to orders/outcomes (+ index decisions.user_id)
 
-Week-6 Row-Level Security scopes every query by a per-user tenant key (`app.user_id`)
-on decisions/orders/outcomes. decisions already had user_id; add it to orders and
-outcomes and index it on all three so RLS is ready without a Week-6 schema scramble.
+Every query scopes decisions/orders/outcomes by a per-user tenant key. decisions
+already had user_id; add it to orders and outcomes and index it on all three.
 
 Revision ID: f4d5e6a7b8c9
 Revises: e3c4d5f6a7b8
