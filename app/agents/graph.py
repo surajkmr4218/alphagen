@@ -16,7 +16,7 @@ def _after_log(state: TradeState) -> str:
 
 
 def build_graph(checkpointer):
-    """Compile the trade graph ONCE against a durable checkpointer (Week-7 Session 4).
+    """Compile the trade graph ONCE against a durable checkpointer.
 
     No broker/db/cfg are injected here anymore: the execute node resolves its own resources at
     run time (see execution_node), which is what lets a resumed run work on a live session. The
@@ -46,8 +46,8 @@ def build_graph(checkpointer):
     g.add_edge("research", "hypothesis")
     g.add_edge("hypothesis", "critic")
     # The critic is ADVISORY: its verdict is recorded and shown at the approval gate, but it
-    # never ends the run — the owner decides. Deterministic guardrails (incl. the hard
-    # citations rule) still gate execution via _after_log; only LLM opinion lost its veto.
+    # never ends the run — the owner decides. Deterministic guardrails (including the hard
+    # citations rule) still gate execution via _after_log. 
     g.add_edge("critic", "guardrail")
     g.add_edge("guardrail", "log")             # every run logs after the guardrail result
     g.add_conditional_edges("log", _after_log, {"execute": "execute", "END": END})
@@ -70,7 +70,7 @@ async def run_graph(
     """Assemble the initial TradeState and run the SINGLETON graph to its first stop.
 
     `graph` is the process-wide compiled singleton (built once in the FastAPI lifespan with the
-    durable AsyncPostgresSaver) — we no longer compile per call, and no request-scoped broker/
+    durable AsyncPostgresSaver) — we don't compile per call, and no request-scoped broker/
     session is injected because the execute node resolves its own. `execution_enabled` is still
     *derived* from role (never set by hand): public tier ends at END; owner tier pauses at
     interrupt_before=["execute"] for the approval gate. Async because the saver is async.
@@ -79,7 +79,7 @@ async def run_graph(
 
     decision_id = decision_id or str(uuid.uuid4())
     state: TradeState = {
-        "clerk_user_id": user.clerk_user_id,  # the one tenant key
+        "clerk_user_id": user.clerk_user_id,  
         "ticker": ticker,
         "execution_enabled": execution_enabled_for(user),
         "decision_id": decision_id,

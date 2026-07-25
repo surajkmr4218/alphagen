@@ -7,19 +7,17 @@ from datetime import date
 from app.agents.state import TradeState
 from app.config import guardrail_cfg, settings
 from app.guardrails.rules import validate
+from app.db import session_scope
 
 MODEL = "gemini-3.1-flash-lite"   # reasoning nodes; bump to gemini-3.5-flash/3.1-pro if weak
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
-
-
 _GENAI_CLIENT = None
 
-
 def _client():
-    # Cache one Client for the process. A throwaway `genai.Client()` per call can be
-    # garbage-collected mid-request (it closes its httpx connection on __del__), which
-    # surfaces as "Cannot send a request, as the client has been closed" under LangGraph.
-    # Keep one Client alive for whole process so httpx connection never closes.
+    """Cache one Client for the process. A throwaway `genai.Client()` per call can be
+    garbage-collected mid-request (it closes its httpx connection on __del__), which
+    surfaces as "Cannot send a request, as the client has been closed" under LangGraph.
+    Keep one Client alive for whole process so httpx connection never closes."""
     global _GENAI_CLIENT
     if _GENAI_CLIENT is None:
         from google import genai  # lazy: keeps `import app.agents.graph` fast
@@ -55,12 +53,9 @@ def research_node(state: TradeState) -> dict:
 
     ticker = state["ticker"]
     query = state.get("query")  # None -> build_diff_bundle uses DEFAULT_QUERY
-    session = SessionLocal()
-    try:
+    with session_scope() as session:
         bundle = build_diff_bundle(session, ticker, query)  # retrieve (relevance) + diff (annotate)
-        bundle = attach_signals(session, ticker, bundle)    # Week 4: structured signals
-    finally:
-        session.close()
+        bundle = attach_signals(session, ticker, bundle)    # structured signals
     return {"evidence": bundle}
 
 
@@ -147,7 +142,7 @@ def guardrail_node(state: TradeState) -> dict:
                               "results": [{"rule": "schema", "passed": False,
                                            "severity": "hard", "reason": "no hypothesis"}]}}
     uid = state.get("clerk_user_id")
-    with session_scope(uid) as db:
+    with session_scope() as db:
         account = ExecutionRepo(db).get_account_snapshot(uid, state["ticker"])
     result = validate(h, account, date.today(), evidence, guardrail_cfg())
     return {"guardrail": result}
@@ -161,9 +156,7 @@ def log_node(state: TradeState) -> dict:
     from app.agents.logging import write_decision
     from app.db import session_scope
 
-    # The write session carries the same clerk_user_id in the RLS GUC that we stamp into
-    # the user_id column, so the row the policy sees and the row we write agree.
     clerk_user_id = state["clerk_user_id"]
-    with session_scope(clerk_user_id) as db:
+    with session_scope() as db:
         write_decision(db, state, user_id=clerk_user_id)
     return {}

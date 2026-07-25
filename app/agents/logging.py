@@ -24,7 +24,7 @@ def write_decision(db, state: dict, user_id: str = "owner") -> str:
     )
     db.merge(dec)           # merge so if row with decision_id exists, row gets replaced
 
-    # A pending Order row only if the trade is eligible (passed). Filled by Week 7.
+    # A pending Order row only if the trade is eligible (passed). 
     if guard.get("passed"):
         db.merge(Order(
             decision_id=did, user_id=user_id, symbol=state["ticker"],

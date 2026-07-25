@@ -13,19 +13,19 @@ class TradeState(TypedDict, total=False):
     decision_id: str                 # idempotency key; also the LangGraph thread_id
 
     # --- filled by research_node ---
-    evidence: dict                   # Week-2 bundle + Week-4 signals block
+    evidence: dict                   # signals block
 
     # --- filled by hypothesis_node ---
-    hypothesis: dict | None          # structured trade proposal (see Session 4)
+    hypothesis: dict | None          # structured trade proposal 
 
     # --- filled by critic_node ---
     critic_verdict: dict | None      # {verdict, reasons, unsupported_citations}
 
-    # --- filled by guardrail_node (stub now, Week 5) ---
+    # --- filled by guardrail_node ---
     guardrail: dict | None           # {passed, results}
 
-    # --- filled by the human-approval interrupt (Week 7) ---
+    # --- filled by the human-approval interrupt ---
     human_decision: Literal["approved", "rejected", "pending"]
 
-    # --- filled by execute_node (stub now, Week 7) ---
+    # --- filled by execute_node  ---
     order: dict | None               # broker response / rejection record
