@@ -67,7 +67,7 @@ One live trade has completed the full lifecycle, proposed, cited, critiqued, app
 - **Run lifecycle that can't leak** — background runs are `asyncio` tasks with hard references (guarding against mid-flight garbage collection) and a catch-all failure path: every run terminates in a DB-visible `pending` / `rejected` / `failed` state with a recorded reason. No zombie runs.
 - **Defense-in-depth against hallucination** — JSON-schema-constrained LLM output, an advisory critic pass, and *deterministic* guardrails with a hard citations rule that verifies every source against the actual evidence bundle.
 - **Layered risk controls** — a ticker allowlist, per-trade and total-exposure notional caps, a daily trade rate limit, and a daily-loss kill-switch that halts all trading, all enforced as hard rules independent of any model output.
-- **Multi-tenant isolation, two layers deep** — every session sets the tenant key as a GUC and every query scopes explicitly by `user_id`. Beneath that, Postgres **row-level security** policies are enforced (a missing tenant key matches zero rows). The app connects as a dedicated `NOSUPERUSER` role, since superusers silently bypass RLS. Clerk handles authentication end-to-end (JWT-verified API, React SDK on the frontend).
+- **Multi-tenant isolation** — every query scopes explicitly by `user_id` through the repo layer, so tenant filtering lives in one place. Clerk handles authentication end-to-end (JWT-verified API, React SDK on the frontend).
 - **Real brokerage integration** — Robinhood's Trading MCP server via `langchain-mcp-adapters`, with full OAuth token lifecycle management and Fernet-encrypted token storage at rest.
 - **Continuous evaluation** — a golden-dataset RAG eval harness and A/B embedding comparisons keep retrieval quality measurable (see the metrics table above) with guardrails and API behavior are covered by pytest.
 
@@ -93,11 +93,8 @@ Requires uv, Docker, and Node 20+.
 # 1. Configure environment (API keys, Clerk, database URL)
 cp .env.example .env   # then fill in values
 
-# 2. Start Postgres and bootstrap it (pgvector extension + NOSUPERUSER runtime role —
-#    superusers bypass row-level security, so the app never connects as one)
+# 2. Start Postgres (the init migration creates the pgvector extension)
 docker compose up -d db
-docker compose exec -T db psql -U app -d alphagen \
-  -v pw="$(grep '^APP_DB_PASSWORD=' .env | cut -d= -f2)" < scripts/bootstrap_db.sql
 
 # 3. Apply database migrations, then start the API
 uv run alembic upgrade head
@@ -127,7 +124,7 @@ app/
 ├── execution/     # Robinhood MCP broker, order DAL, fill reconciliation
 ├── eval/          # golden-dataset RAG evals, embedding A/B tests
 ├── security.py    # OAuth token storage (Fernet-encrypted)
-└── db.py          # RLS-scoped sessions (fail-closed tenancy)
+└── db.py          # engine + commit-on-exit session helper
 web/               # React 19 + TypeScript dashboard
 alembic/           # schema migrations
 ```

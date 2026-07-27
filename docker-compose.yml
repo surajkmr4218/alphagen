@@ -3,12 +3,16 @@ name: alphagen
 services:
   db:
     image: pgvector/pgvector:pg16
+    # Local dev only. Throwaway credentials, loopback-bound (see ports).
+    # Production DATABASE_URL comes from the environment, never from this file.
     environment:
       POSTGRES_USER: app
       POSTGRES_PASSWORD: app
       POSTGRES_DB: alphagen
     ports:
-      - "5432:5432"
+      # Loopback only: host psql/alembic still work, but the DB (superuser app/app)
+      # is unreachable from the network.
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -22,10 +26,8 @@ services:
     env_file: .env
     # Override the DB host: inside the network the database is `db`, not localhost.
     # `environment` wins over env_file, so this replaces the .env DATABASE_URL.
-    # Connects as alphagen_app (NOSUPERUSER) so row-level security actually enforces;
-    # the `app` superuser is only the bootstrap role (extension + role creation).
     environment:
-      DATABASE_URL: postgresql+psycopg://alphagen_app:${APP_DB_PASSWORD}@db:5432/alphagen
+      DATABASE_URL: postgresql+psycopg://app:app@db:5432/alphagen
     ports:
       - "8000:8000"
     # Bind-mount source for --reload. The runtime venv lives at /opt/venv (see
