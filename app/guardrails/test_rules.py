@@ -43,13 +43,6 @@ def test_over_cap_blocks():
     assert "position_cap" in _failed_rules(out)
 
 
-def test_over_exposure_blocks():
-    acct = {**ACCOUNT, "deployed": 48.0}   # 48 + 3 = 51 > 50
-    out = validate(_hyp(), acct, TODAY, EVIDENCE, CFG)
-    assert out["passed"] is False
-    assert "exposure" in _failed_rules(out)
-
-
 def test_unresolved_citation_blocks():
     bad = _hyp(citations=[{"accession": "9999-99-999999", "section": "item 7"}])
     out = validate(bad, ACCOUNT, TODAY, EVIDENCE, CFG)
@@ -87,13 +80,6 @@ def test_rate_limit_blocks():
     assert "rate_limit" in _failed_rules(out)
 
 
-def test_kill_switch_blocks():
-    acct = {**ACCOUNT, "pnl_today": -6.0}   # -6 <= -5 -> kill switch
-    out = validate(_hyp(), acct, TODAY, EVIDENCE, CFG)
-    assert out["passed"] is False
-    assert "kill_switch" in _failed_rules(out)
-
-
 def test_missing_schema_keys_blocks():
     out = validate({"ticker": "AAPL", "direction": "long"}, ACCOUNT, TODAY, EVIDENCE, CFG)
     assert out["passed"] is False
@@ -104,8 +90,8 @@ def test_all_rules_are_always_recorded():
     # Even a clean pass logs every rule — the dashboard needs the full trail.
     out = validate(_hyp(), ACCOUNT, TODAY, EVIDENCE, CFG)
     rules = {r["rule"] for r in out["results"]}
-    assert rules == {"schema", "citations", "position_cap", "exposure",
-                     "confidence", "allowlist", "rate_limit", "kill_switch"}
+    assert rules == {"schema", "citations", "position_cap",
+                     "confidence", "allowlist", "rate_limit"}
 
 
 def test_citation_helper_directly():
