@@ -22,12 +22,6 @@ MCP_URL = "https://agent.robinhood.com/mcp/trading"
 CALLBACK_PORT = 8765
 REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/callback"
 
-# Plaintext cache — KNOWN, time-boxed exception (gitignored). Encrypted-at-rest
-# per-user storage (Fernet + Clerk). Holds BOTH the OAuth tokens and the 
-# dynamically-registered client info, so run #2 can skip both.
-TOKEN_PATH = Path(".robinhood_token.json")
-
-
 # ---- OAuth interaction handlers ---------------------------------------------
 async def redirect_handler(auth_url: str) -> None:
     """Open the system browser at the authorization URL."""
