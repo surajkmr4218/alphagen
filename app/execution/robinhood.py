@@ -12,10 +12,10 @@ MCP_URL = "https://agent.robinhood.com/mcp/trading"
 
 
 class RobinhoodBroker:
-    """Thin wrapper over the Robinhood Trading MCP tools (Path A: direct MCP via
-    langchain-mcp-adapters). 
+    """Thin wrapper over the Robinhood Trading MCP tools. Direct MCP via
+    langchain-mcp-adapters. 
 
-    `auth` is the OAuth handler (an httpx.Auth) — inject the Session-0 OAuthClientProvider
+    `auth` is the OAuth handler (an httpx.Auth) — inject the OAuthClientProvider
     backed by DbTokenStorage. Without it the Robinhood MCP server 401s every call."""
 
     def __init__(self, account_number: str, auth: httpx.Auth) -> None:
@@ -32,7 +32,7 @@ class RobinhoodBroker:
                     "transport": "streamable_http",
                     "url": MCP_URL,
                     "auth": self._auth,  # OAuthClientProvider -> attaches/refreshes bearer token
-                    # Robinhood rejects the DELETE session-teardown (400). Skip it — it's noise.
+                    # Robinhood rejects the DELETE session-teardown (returns 400). Skip it — it's noise.
                     "terminate_on_close": False,
                 }}
             )
@@ -85,7 +85,7 @@ class RobinhoodBroker:
         return float(price)
 
     async def tradable(self, symbol: str) -> bool:
-        # get_equity_tradability REQUIRES account_number; the flag is spelled 'tradeable'.
+        # get_equity_tradability REQUIRES account_number.
         res = await self._call(
             "get_equity_tradability", symbols=[symbol], account_number=self.account_number
         )
@@ -119,7 +119,7 @@ class RobinhoodBroker:
         return data
 
     async def order_status(self, order_id: str) -> dict[str, Any]:
-        # get_equity_orders takes a singular order_id + account_number; results are data.orders.
+        # The get_equity_orders function takes order_id + account_number; results are data.orders.
         res = await self._call(
             "get_equity_orders", order_id=order_id, account_number=self.account_number
         )
@@ -127,14 +127,7 @@ class RobinhoodBroker:
         return orders[0] if orders else {}
 
     async def portfolio(self) -> dict[str, float | None]:
-        """Account snapshot: {total_equity, cash, buying_power}.
-
-        Field names are PINNED to the observed get_portfolio payload (Session-0 preflight
-        raw dump, 2026-07-17): money values are strings; buying_power is nested one level;
-        total_value is the whole account (equity_value is only the stock slice — wrong one).
-        A missing/malformed field maps to None (the dashboard renders a dash) — never an
-        exception or a second guessing call on the 30s poll.
-        """
+        # Account snapshot: {total_equity, cash, buying_power}.  
         res = await self._call("get_portfolio", account_number=self.account_number)
         data = self._payload(res).get("data", {})
         bp = data.get("buying_power")
@@ -154,8 +147,8 @@ def _to_float(v: Any) -> float | None:
 
 class StubBroker:
     """Paper-mode broker: deterministic fakes, no network, no real orders. Injected when
-    execution is disabled (public tier) or in tests — same DI seam as RobinhoodBroker, so
-    the execution node can't tell the difference. Mirrors the RobinhoodBroker surface."""
+    execution is disabled (public tier) or in tests — includes async def functions, so
+    the execution node can't tell the difference and no TypeErrors come up"""
 
     def __init__(self, account_number: str = "STUB") -> None:
         self.account_number = account_number

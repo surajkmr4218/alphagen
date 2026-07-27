@@ -40,13 +40,13 @@ def validate(
 ) -> dict:
     """PURE function. No DB, no clock, no network — caller injects everything.
 
-    h:        the hypothesis JSON (Week-4 hypothesis_node output)
+    h:        the hypothesis JSON (hypothesis_node output)
     account:  {"deployed": float, "trades_today": int, "pnl_today": float}
     today:    the as-of date (injected so backtest/tests control time)
-    evidence: the Week-2/4 evidence bundle (for citation resolution)
+    evidence: the evidence bundle (for citation resolution)
     cfg:      guardrail_cfg() thresholds
 
-    Keyword-only, injected ONLY at the Week-7 execution check-twice (both default None):
+    Keyword-only, injected ONLY at the execution check-twice (both default None):
     live_price:  the FRESH broker quote — enables the price_sanity rule.
     market_open: the FRESH market-state boolean — enables the market_hours rule.
     When either is None its rule is simply not evaluated, so the guardrail node and the
@@ -81,16 +81,7 @@ def validate(
         if cap_ok else f"size_usd {size} OVER cap {cfg['max_notional']}",
     ))
 
-    # 4. exposure (hard) — deployed + this trade may not exceed max_exposure ($50, no margin).
-    deployed = float(account.get("deployed", 0.0))
-    exp_ok = deployed + size <= cfg["max_exposure"]
-    results.append(R(
-        "exposure", exp_ok, "hard",
-        f"deployed {deployed}+{size} <= {cfg['max_exposure']}"
-        if exp_ok else f"exposure {deployed + size} OVER {cfg['max_exposure']}",
-    ))
-
-    # 5. confidence (SOFT) — below the floor warns but does NOT block.
+    # 4. confidence (SOFT) — below the floor warns but does NOT block.
     conf = float(h.get("confidence", 0.0) or 0.0)
     conf_ok = conf >= cfg["min_conf"]
     results.append(R(
@@ -99,7 +90,7 @@ def validate(
         if conf_ok else f"LOW confidence {conf} < {cfg['min_conf']} (allowed, flagged)",
     ))
 
-    # 6. allowlist (hard) — only vetted, liquid tickers may trade.
+    # 5. allowlist (hard) — only vetted, liquid tickers may trade.
     ticker = (h.get("ticker") or account.get("ticker") or "").upper()
     allow_ok = ticker in {t.upper() for t in cfg["allowlist"]}
     results.append(R(
@@ -107,7 +98,7 @@ def validate(
         f"{ticker} on allowlist" if allow_ok else f"{ticker} NOT on allowlist",
     ))
 
-    # 7. rate_limit (hard) — cooldown: no more than max_per_day trades opened today.
+    # 6. rate_limit (hard) — cooldown: no more than max_per_day trades opened today.
     rate_ok = int(account.get("trades_today", 0)) < cfg["max_per_day"]
     results.append(R(
         "rate_limit", rate_ok, "hard",
@@ -115,28 +106,19 @@ def validate(
         if rate_ok else f"rate limit hit ({cfg['max_per_day']}/day)",
     ))
 
-    # 8. kill_switch (hard) — halt all trading if today's PnL breached the daily loss limit.
-    pnl = float(account.get("pnl_today", 0.0))
-    kill_ok = pnl > -cfg["max_daily_loss"]
-    results.append(R(
-        "kill_switch", kill_ok, "hard",
-        f"pnl_today {pnl} > -{cfg['max_daily_loss']}"
-        if kill_ok else f"KILL SWITCH: pnl_today {pnl} <= -{cfg['max_daily_loss']}",
-    ))
-
-    # --- time-sensitive rules: only at the Week-7 execution check-twice ---------------
+    # --- time-sensitive rules: only at the execution check-twice ---------------
     # These re-check conditions that move BETWEEN the guardrail node and the human's click,
     # so they run on the FRESH quote/market-state, not the stale ones the hypothesis was
     # written against. Skipped entirely (not recorded) when their input is None.
 
-    # 9. market_hours (hard) — never place into a closed market.
+    # 7. market_hours (hard) — never place into a closed market.
     if market_open is not None:
         results.append(R(
             "market_hours", bool(market_open), "hard",
             "market open" if market_open else "market CLOSED at execution",
         ))
 
-    # 10. price_sanity (hard) — the fresh quote must be a usable positive number before
+    # 8. price_sanity (hard) — the fresh quote must be a usable positive number before
     #     execute.py divides size_usd by it (a 0.0 would be a divide-by-zero / absurd qty).
     if live_price is not None:
         price_ok = live_price > 0

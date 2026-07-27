@@ -43,7 +43,7 @@ def chunk_section(text: str, target: int = 1200, overlap: int = 150) -> list[str
 # ---- IO edge: contextual blurb via Gemini --------------------------------
 
 # Cheap, high-volume per-chunk call -> Flash-Lite: cheapest tier, highest daily quota.
-# Reasoning-heavy calls (Week 4 hypothesis/critic) use gemini-3.5-flash instead.
+# Reasoning-heavy calls (Hypothesis/critic) use gemini-3.5-flash instead.
 BLURB_MODEL = "gemini-3.1-flash-lite"
 # BLURB_MODEL = "gemini-3.5-flash"  # swap up if blurbs need more reasoning per call
 
@@ -82,7 +82,7 @@ def persist_filing_chunks(
 ) -> int:
     """Chunk a filing's sections, embed (blurb+chunk), and insert Chunk rows.
 
-    `sections` lets you restrict to e.g. ["item 1a", "item 7"] for Week 2; default
+    `sections` lets you restrict to e.g. ["item 1a", "item 7"]; default
     is every section present on the filing. Returns the number of chunks written.
     """
     ticker = filing.ticker.upper()  # convention: always upper-keyed

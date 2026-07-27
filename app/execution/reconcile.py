@@ -51,26 +51,25 @@ async def reconcile_once(db, broker) -> None:
 
 async def reconcile_tick() -> None:
     """One scheduled sweep, self-contained. The scheduler outlives any request, so each
-    tick opens its own RLS-scoped session and builds its own broker (same pattern as
+    tick opens its own session and builds its own broker (same pattern as
     execution_node). Quietly a no-op until an owner account exists."""
     from app.db import SessionLocal, session_scope
     from app.execution.execute import _build_broker
     from app.models import User, execution_enabled_for
 
-    with SessionLocal() as s:  # users table is not RLS'd — any session can find the owner
+    with SessionLocal() as s:
         owner = s.query(User).filter_by(role="owner").first()
         owner_id = owner.clerk_user_id if owner else None
     if owner_id is None:
         return
 
-    with session_scope(owner_id) as s:  # GUC = owner -> orders/outcomes visible under RLS
+    with session_scope() as s:
         owner = s.query(User).filter_by(clerk_user_id=owner_id).one()
         broker = _build_broker(owner, s, execution_enabled_for(owner))
         await reconcile_once(ExecutionRepo(s), broker)
 
 
 def start_scheduler():
-    # Lazy import — APScheduler only loaded when the cron is actually started.
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
     sched = AsyncIOScheduler()

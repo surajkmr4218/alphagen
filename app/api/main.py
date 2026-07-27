@@ -28,15 +28,16 @@ from app.execution.robinhood import StubBroker
 from app.models import User, execution_enabled_for
 from app.security import link_robinhood
 
+# Specify a GLOBAL graph variable so it holds the checkpointer and can resume properly
 GRAPH = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global GRAPH
-    # The saver speaks raw psycopg — it needs a libpq URL, not the SQLAlchemy '+psycopg' form.
+    # The saver speaks raw psycopg so it needs a libpq URL, not the SQLAlchemy '+psycopg' form.
     conninfo = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
     async with AsyncPostgresSaver.from_conn_string(conninfo) as checkpointer:
-        await checkpointer.setup()           # the saver's OWN tables (independent of Alembic)
+        await checkpointer.setup()           # the saver's OWN tables (managed by LangGraph, independent of Alembic)
         scheduler = start_scheduler()        # reconcile cron; each tick owns its session/broker
         GRAPH = build_graph(checkpointer)    # singleton; build_graph takes only the checkpointer
         yield
@@ -44,8 +45,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Alphagen", lifespan=lifespan)
 
-# Browser calls come from the Vite dev origin; without this the preflight fails
-# and every fetch from the SPA is blocked. curl bypasses CORS, so test in-browser.
+# Specifies the type of requests that are allowed
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in settings.allowed_origins.split(",") if o.strip()],
@@ -77,18 +77,14 @@ def current_user_id(authorization: str = Header(default="")) -> str:
         raise HTTPException(status_code=401, detail="missing bearer token")
     return _verify_clerk_jwt(authorization.removeprefix("Bearer "))
 
-def get_db(clerk_user_id: str = Depends(current_user_id)) -> Iterator[Session]:
-    # session_scope sets the RLS GUC (app.user_id) to the same clerk_user_id that
-    # write_decision stamps into the user_id column — one tenant key, set on every session.
-    with session_scope(clerk_user_id) as db:
+def get_db() -> Iterator[Session]:
+    with session_scope() as db:
         yield db
 
 def get_repo(
     db: Session = Depends(get_db), clerk_user_id: str = Depends(current_user_id)
 ) -> ExecutionRepo:
-    # The owner endpoints talk to the DB through the repo verbs, not raw ORM. The tenant is
-    # passed EXPLICITLY (WHERE user_id = ...) — the session's RLS GUC is backstop only,
-    # since RLS silently no-ops on a superuser connection.
+    # The owner endpoints talk to the DB through the repo verbs, not raw ORM.  
     return ExecutionRepo(db, clerk_user_id)
 
 def current_user(
@@ -103,16 +99,14 @@ def current_user(
     return user
 
 def get_read_repo(user: User = Depends(current_user)) -> Iterator[ExecutionRepo]:
-    # Dashboard reads: the owner sees their own tenant; everyone else (public/recruiter)
-    # sees the seeded demo tenant. The tenant key goes into the RLS GUC, so the DB —
-    # not endpoint code — enforces the scoping.
-    # ONE tenant value feeds both layers (explicit WHERE + RLS GUC) so they can't disagree.
+    # Dashboard reads: the owner sees their own tenant. Everyone else (public/recruiter)
+    # sees the seeded demo tenant.  
     tenant = user.clerk_user_id if user.role == "owner" else settings.demo_user_id
-    with session_scope(tenant) as db:
+    with session_scope() as db:
         yield ExecutionRepo(db, tenant)
 
 
-def require_owner(user: User = Depends(current_user)) -> User:   # current_user from Week 6
+def require_owner(user: User = Depends(current_user)) -> User:  
     # The user row already carries the role — no DB round-trip needed for the gate.
     if user.role != "owner":
         raise HTTPException(status_code=403, detail="owner only")
@@ -255,7 +249,7 @@ def run_status(
         if datetime.now(UTC) - created < timedelta(minutes=_RUN_STALE_MINUTES):
             return {"decision_id": decision_id, "status": "running"}
         return {"decision_id": decision_id, "status": "failed",
-                "reason": "stale — worker restarted mid-run"}
+                "reason": "stale"}
     if d.human_decision == "failed":
         results = (d.guardrail or {}).get("results") or [{}]
         return {"decision_id": decision_id, "status": "failed",
@@ -264,7 +258,10 @@ def run_status(
         return {"decision_id": decision_id, "status": "pending-approval"}
     return {"decision_id": decision_id, "status": "complete", "human_decision": d.human_decision}
 
-# --- dashboard read endpoints — owner sees own tenant, public sees demo ---
+
+"""
+Dashboard read endpoints — owner sees own tenant, public sees demo.
+"""
 
 # Last snapshot that came back from the live broker. Served (marked stale) when the broker
 # blips so the account bar never 500s; static demo values until the first good read.
@@ -333,10 +330,10 @@ async def list_decisions(
 
 @app.get("/decisions/{decision_id}/trail")
 def reasoning_trail(decision_id: str, repo: ExecutionRepo = Depends(get_read_repo)):
-    d = repo.get_decision(decision_id)                    # RLS scopes by app.user_id
-    if d is None:                                         # missing OR another tenant's — same 404
+    d = repo.get_decision(decision_id)                    
+    if d is None:                                        
         raise HTTPException(status_code=404, detail="decision not found")
-    ev = d.evidence or {}                                 # pre-migration rows have no evidence
+    ev = d.evidence or {}                                  
     # build_diff_bundle annotates diffs per-passage (passages[].diff). Surface the first
     # (highest-ranked) annotated passage; null only when nothing changed YoY or there is
     # no prior same-form filing to diff against.

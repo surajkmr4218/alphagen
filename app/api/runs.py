@@ -13,7 +13,7 @@ from app.models import User
 
 log = logging.getLogger("runs")
 
-# Hard references to in-flight tasks: a bare create_task result is GC-able mid-run.
+# Global variable prevents Garbage Collector from acting on these tasks
 _TASKS: set[asyncio.Task] = set()
 
 
@@ -21,6 +21,10 @@ def launch_run(graph: Any, decision_id: str, ticker: str, clerk_user_id: str) ->
     task = asyncio.create_task(_run_pipeline(graph, decision_id, ticker, clerk_user_id))
     _TASKS.add(task)
     task.add_done_callback(_TASKS.discard)
+
+def _mark(decision_id: str, clerk_user_id: str, status: str, *, reason: str | None = None) -> None:
+    with session_scope() as db:
+        ExecutionRepo(db, clerk_user_id).mark_run_status(decision_id, status, reason=reason)
 
 
 async def _run_pipeline(graph: Any, decision_id: str, ticker: str, clerk_user_id: str) -> None:
@@ -30,15 +34,14 @@ async def _run_pipeline(graph: Any, decision_id: str, ticker: str, clerk_user_id
     (system-resolved), or 'failed' (+reason). Owns its own sessions: the request session
     that created the stub row is long closed (same pattern as reconcile_tick)."""
     try:
-        # Un-ingested ticker -> build_diff_bundle would silently produce an empty evidence
-        # bundle. Ingest first (sync EDGAR fetch + embeddings -> thread, not the event loop).
+        # Ingest first (sync EDGAR fetch + embeddings -> thread, not the event loop).
         await asyncio.to_thread(ensure_corpus, ticker)
 
-        with SessionLocal() as s:  # users table is not RLS'd
+        with SessionLocal() as s:
             user = s.query(User).filter_by(clerk_user_id=clerk_user_id).one()
         await run_graph(graph, ticker, user, decision_id=decision_id)
 
-        # Parked at interrupt_before=["execute"] -> awaiting the human gate; anything else
+        # Parked at interrupt_before=["execute"] -> awaiting the human gate. Anything else
         # ran to END without an executable trade (guardrail hard-fail / abstain — the critic
         # is advisory and no longer ends a run).
         snap = await graph.aget_state({"configurable": {"thread_id": decision_id}})
@@ -49,6 +52,3 @@ async def _run_pipeline(graph: Any, decision_id: str, ticker: str, clerk_user_id
         _mark(decision_id, clerk_user_id, "failed", reason=f"{type(exc).__name__}: {exc}")
 
 
-def _mark(decision_id: str, clerk_user_id: str, status: str, *, reason: str | None = None) -> None:
-    with session_scope(clerk_user_id) as db:  # RLS GUC = the tenant that owns the row
-        ExecutionRepo(db, clerk_user_id).mark_run_status(decision_id, status, reason=reason)

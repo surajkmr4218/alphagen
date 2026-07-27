@@ -22,49 +22,10 @@ MCP_URL = "https://agent.robinhood.com/mcp/trading"
 CALLBACK_PORT = 8765
 REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/callback"
 
-# Plaintext cache — KNOWN, time-boxed Week-1 exception (gitignored). Encrypted-at-rest
-# per-user storage (Fernet + Clerk + RLS) is the Week-6 deliverable. Holds BOTH the
-# OAuth tokens and the dynamically-registered client info, so run #2 can skip both.
+# Plaintext cache — KNOWN, time-boxed exception (gitignored). Encrypted-at-rest
+# per-user storage (Fernet + Clerk). Holds BOTH the OAuth tokens and the 
+# dynamically-registered client info, so run #2 can skip both.
 TOKEN_PATH = Path(".robinhood_token.json")
-
-
-# ---- Path A/B hinge: does a token persist + get reused across runs? ----------
-class FileTokenStorage(TokenStorage):
-    """Persist OAuth tokens + client registration to a local JSON file.
-
-    If get_tokens() returns a live token on run #2 and the transport reuses it
-    without re-prompting -> Path A is viable. If every run re-prompts -> Path B.
-    """
-
-    def __init__(self, path: Path = TOKEN_PATH) -> None:
-        self.path = path
-
-    def _load(self) -> dict:
-        if self.path.exists():
-            return json.loads(self.path.read_text())
-        return {}
-
-    def _save(self, data: dict) -> None:
-        self.path.write_text(json.dumps(data, indent=2))
-        self.path.chmod(0o600)  # plaintext on disk — at least restrict to the owner
-
-    async def get_tokens(self) -> OAuthToken | None:
-        raw = self._load().get("tokens")
-        return OAuthToken.model_validate(raw) if raw else None
-
-    async def set_tokens(self, tokens: OAuthToken) -> None:
-        data = self._load()
-        data["tokens"] = tokens.model_dump(mode="json")
-        self._save(data)
-
-    async def get_client_info(self) -> OAuthClientInformationFull | None:
-        raw = self._load().get("client")
-        return OAuthClientInformationFull.model_validate(raw) if raw else None
-
-    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        data = self._load()
-        data["client"] = client_info.model_dump(mode="json")
-        self._save(data)
 
 
 # ---- OAuth interaction handlers ---------------------------------------------
@@ -112,7 +73,7 @@ async def callback_handler() -> tuple[str, str | None]:
         finally:
             server.server_close()
 
-    await asyncio.get_running_loop().run_in_executor(None, serve_once)
+    await asyncio.get_running_loop().run_in_executor(None, serve_once) # non-blocking
     captured = _CallbackHandler.captured
     if captured.get("error"):
         raise RuntimeError(f"Authorization failed: {captured['error']}")

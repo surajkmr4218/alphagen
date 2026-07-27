@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 MODEL_NAME = "BAAI/bge-small-en-v1.5"  # 384-dim, free, local CPU
-EMBED_DIM = 384  # MUST match Chunk.embedding = Vector(384) from Week 1
+EMBED_DIM = 384  # MUST match Chunk.embedding = Vector(384)  
 
 
 @lru_cache(maxsize=1)

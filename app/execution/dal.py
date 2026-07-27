@@ -14,13 +14,12 @@ class ExecutionRepo:
 
     Wraps ONE SQLAlchemy Session behind the domain verbs that execute.py calls (and, in later
     sessions, the approval endpoints and the reconciliation job). Business code never issues
-    raw ORM queries — it calls named methods — which keeps the query logic in one place and
+    raw ORM queries. It calls named methods, which keeps the query logic in one place and
     lets tests inject a fake repo with the same surface.
 
-    `user_id` is the tenant scope for the read verbs: request-bound repos MUST pass it
-    (RLS alone is not trusted — a superuser connection bypasses it silently). None means
-    a trusted system session (execution node, reconcile cron) that legitimately sees
-    every tenant's rows.
+    `user_id` is the tenant scope for the read verbs: request-bound repos MUST pass it —
+    this explicit WHERE scoping is the isolation layer. None means a trusted system
+    session (execution node, reconcile cron) that legitimately sees every tenant's rows.
     """
 
     def __init__(self, session: Session, user_id: str | None = None) -> None:
@@ -32,7 +31,6 @@ class ExecutionRepo:
         """Append the tenant predicate unless this is an unscoped system repo."""
         return stmt.where(col == self.user_id) if self.user_id is not None else stmt
 
-    # --- consumed by execution_node (Session 2) -------------------------------
     def order_exists(self, decision_id: str) -> dict | None:
         """Return an already-PLACED order (for idempotency), or None.
 
@@ -45,8 +43,7 @@ class ExecutionRepo:
 
     def write_order(self, decision_id: str, order: dict[str, Any]) -> None:
         """Upsert the Order row for this decision with the execution result (or rejection)."""
-        # A fresh row (placeholder invisible or never written) must carry the tenant key —
-        # under enforced RLS an INSERT with user_id NULL is InsufficientPrivilege.
+        # A fresh row (placeholder invisible or never written) must carry the tenant key.
         o = self.session.get(Order, decision_id) or Order(
             decision_id=decision_id, user_id=self.user_id
         )
@@ -84,14 +81,14 @@ class ExecutionRepo:
     def get_account_snapshot(self, user_id: str | None, ticker: str) -> dict:
         """Deterministic account facts validate() needs: {deployed, trades_today, pnl_today}.
 
-        Positions/PnL are 0.0 until live broker positions are wired (Week 8); the trade count
+        Positions/PnL are 0.0 until live broker positions are wired; the trade count
         is real, from today's Order rows.
         """
         return {
             "ticker": ticker,                               
-            "deployed": 0.0,                               # live positions -> Week 8
-            "trades_today": self._trades_today(user_id),   # the REAL count
-            "pnl_today": 0.0,                              # live positions -> Week 8
+            "deployed": 0.0,                             
+            "trades_today": self._trades_today(user_id),  
+            "pnl_today": 0.0,                             
         }
 
     def today_counters(self, user_id: str | None) -> dict:
@@ -109,7 +106,7 @@ class ExecutionRepo:
         return user.role
 
     def decisions_pending(self, user: User):
-        # Decisions whose human_decision is still 'pending', scoped to the tenant by RLS.
+        # Decisions whose human_decision is still 'pending', scoped to the tenant explicitly.
         return self.session.scalars(
             select(Decision).where(Decision.user_id == user.clerk_user_id,
                                    Decision.human_decision == "pending")
@@ -118,7 +115,7 @@ class ExecutionRepo:
     def set_human_decision(self, decision_id: str, verdict: str, user, reason: str = "") -> None:
         dec = self.session.get(Decision, decision_id)
         if dec is not None:
-            dec.human_decision = verdict         # 'approved' | 'rejected'
+            dec.human_decision = verdict          
             self.session.commit()
 
     def open_orders(self):
@@ -129,7 +126,7 @@ class ExecutionRepo:
     def update_order_status(self, decision_id: str, state: str, fill_price=None) -> None:
         o = self.session.get(Order, decision_id)
         if o is not None:
-            o.status = state           # the fill price is recorded on the Outcome, not the Order
+            o.status = state            
             self.session.commit()
 
     def outcome_exists(self, decision_id: str) -> bool:
@@ -138,7 +135,7 @@ class ExecutionRepo:
         ) or 0) > 0
 
     def horizon_days(self, order) -> int:
-        return 5  # default holding horizon; per-hypothesis override lands in Week 8
+        return 5  # default holding horizon; per-hypothesis override lands 
 
     def open_outcome(self, order, *, fill_price: float) -> None:
         # Partial write on first-seen fill. forward_return / spy_return / resolved_at stay NULL;
@@ -168,7 +165,7 @@ class ExecutionRepo:
         outcome.resolved_at = datetime.now(UTC)
         self.session.commit()
 
-    # --- consumed by the UI run-submission endpoints (Week-7.5 dashboard upgrades) ----
+    # --- consumed by the UI run-submission endpoints (dashboard upgrades) ----
     # Run state lives in Decision.human_decision: 'running' -> 'pending' (parked at the
     # approval gate) | 'rejected' (system-resolved: critic/guardrail/abstain) | 'failed'.
     def create_running_decision(self, decision_id: str, ticker: str, user_id: str) -> None:
@@ -221,9 +218,6 @@ class ExecutionRepo:
             }
         self.session.commit()
 
-    # --- consumed by the dashboard read endpoints (Session 6) ------------------
-    # Tenant scoping is EXPLICIT (self.user_id) with the RLS GUC as backstop only —
-    # RLS silently no-ops on a superuser connection.
     def list_decisions(self, limit: int = 20) -> list[Decision]:
         return list(self.session.scalars(
             self._scoped(select(Decision), Decision.user_id)

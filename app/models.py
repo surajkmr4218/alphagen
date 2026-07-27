@@ -107,7 +107,6 @@ class Decision(Base):
     critic_verdict: Mapped[dict | None] = mapped_column(JSON, default=dict)
     guardrail: Mapped[dict] = mapped_column(JSON, default=dict)     
     passed: Mapped[bool] = mapped_column(Boolean, default=False)    # all HARD rules passed
-    # RLS tenant key (Week 6). Indexed because every query is scoped by it under Row-Level Security.
     user_id: Mapped[str] = mapped_column(String(64), default="owner", index=True)
     # approved / rejected / pending — set at the Week-7 human-approval gate.
     human_decision: Mapped[str] = mapped_column(String(16), default="pending")
@@ -120,7 +119,6 @@ class Order(Base):
     decision_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("decisions.decision_id"), primary_key=True
     )
-    # RLS tenant key (Week 6) — stamped by write_decision, mirrors the decision's owner.
     user_id: Mapped[str | None] = mapped_column(String(64), index=True)
     symbol: Mapped[str] = mapped_column(String(16))            
     side: Mapped[str] = mapped_column(String(8))             
@@ -141,7 +139,6 @@ class Outcome(Base):
     decision_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("decisions.decision_id"), index=True
     )
-    # RLS tenant key (Week 6) — written by the Week-7 reconciliation job from the order's owner.
     user_id: Mapped[str | None] = mapped_column(String(64), index=True)
     fill_price: Mapped[float | None] = mapped_column(Float)        
     forward_return: Mapped[float | None] = mapped_column(Float)     

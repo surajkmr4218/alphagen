@@ -1,4 +1,4 @@
-"""Week-7 Session 0 preflight — verifies all three prerequisites in one run.
+"""Preflight - verifies all three prerequisites in one run.
 
   1. Account is funded + agentic_allowed=true      (get_accounts + get_portfolio)
   2. Path A holds: cached token reused, NO browser  (spike token storage)
@@ -19,7 +19,7 @@ from mcp.client.auth import OAuthClientProvider
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientMetadata
 
-# Reuse the exact plumbing the Week-1 spike proved out.
+# Reuse the exact plumbing the spike proved out.
 from app.security import owner_token_storage
 from scripts.spike_robinhood import (
     MCP_URL,
@@ -28,7 +28,7 @@ from scripts.spike_robinhood import (
     redirect_handler,
 )
 
-MIN_FUNDING = 50.0  # Week-7 requires the $50 spike account
+MIN_FUNDING = 50.0  # Requires the $50 spike account
 
 # Frozen schema field set from docs/week-7.md Session 0, step 3.
 EXPECTED_FIELDS = {

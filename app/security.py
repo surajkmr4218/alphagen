@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from functools import lru_cache
 
@@ -18,7 +18,7 @@ from app.models import User
 
 @lru_cache(maxsize=1)
 def _fernet() -> Fernet:
-    return Fernet(settings.fernet_key.encode())  # urlsafe-base64 string from Session 0
+    return Fernet(settings.fernet_key.encode())  # urlsafe-base64 string  
 
 
 def encrypt_token(plaintext: str) -> str:
@@ -28,7 +28,7 @@ def encrypt_token(plaintext: str) -> str:
 def decrypt_token(ciphertext: str) -> str:
     try:
         return _fernet().decrypt(ciphertext.encode()).decode()
-    except InvalidToken as e:  # never leak ciphertext in the message
+    except InvalidToken as e:  
         raise ValueError("token could not be decrypted (key rotated or corrupt)") from e
 
 
@@ -47,20 +47,11 @@ def get_robinhood_access_token(user: User) -> str | None:
     
     try:
         return OAuthToken.model_validate_json(decrypt_token(blob)).access_token 
-    except (ValidationError, Exception):
+    except (ValidationError, ValueError): 
         return None
 
-
-# ---- Primary OAuth token storage: encrypted, per-user, in Postgres ----------
 class DbTokenStorage(TokenStorage):
-    """The MCP OAuthClientProvider's storage backend, bound to one User row.
-
-    This is the PRIMARY storage everywhere — API, scripts, cron. The provider owns
-    the timing and calls these four methods itself (on connect, on 401, on refresh);
-    each one reads/writes Fernet ciphertext on `self.user`. We never call the provider's
-    token logic directly, which is why this must be an object implementing the interface
-    rather than loose function calls.
-    """
+    """Primary OAuth token storage: encrypted, per-user, in Postgres."""
 
     def __init__(self, db: Session, user: User) -> None:
         self.db = db
@@ -74,7 +65,7 @@ class DbTokenStorage(TokenStorage):
         try:
             decrypted_json = decrypt_token(blob)
             return OAuthToken.model_validate_json(decrypted_json)
-        except (ValidationError, Exception):
+        except (ValidationError, ValueError):
             return None
         
 
@@ -109,7 +100,7 @@ def get_or_create_owner(db: Session) -> User:
 
 
 @contextmanager
-def owner_token_storage() -> Iterator[DbTokenStorage]:
+def owner_token_storage() -> Generator[DbTokenStorage]:
     """DbTokenStorage for the local owner, with a managed DB session. For scripts/cron."""
     db = SessionLocal()
     try:

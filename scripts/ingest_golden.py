@@ -1,12 +1,12 @@
 """Throwaway driver: ingest 10-K Item 1A + Item 7 for the golden-set tickers.
 
-Reuses the Week-1 EDGAR ingestion (`ingest_latest`) and Week-2 chunking
+Reuses the EDGAR ingestion (`ingest_latest`) and chunking
 (`persist_filing_chunks`). Blurbs are disabled so the golden corpus is
 deterministic and needs no Gemini calls; embeddings are local bge-small.
 
 Idempotent: skips a ticker whose 10-K is already in the DB so re-runs are safe.
 
-    uv run python scripts/ingest_golden.py
+Run: uv run python scripts/ingest_golden.py
 """
 
 from __future__ import annotations

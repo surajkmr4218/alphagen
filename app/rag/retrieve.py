@@ -26,7 +26,7 @@ def dense(db: Session, query: str, k: int = 30, ticker: str | None = None) -> li
     The metadata filter is applied IN SQL so we never pull non-matching rows: when `ticker` is None
     the predicate is a no-op, otherwise it restricts to chunks whose meta JSON ticker matches.
     """
-    qv = embed([query])[0]  # 384-dim, already normalized (see Week 2 embed.py)
+    qv = embed([query])[0]  # 384-dim, already normalized (see embed.py)
     rows = db.execute(
         text(
             """

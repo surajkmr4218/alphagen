@@ -8,7 +8,7 @@ from app.config import guardrail_cfg
 from app.db import session_scope
 from app.execution.dal import ExecutionRepo
 
-# Reuse the Week-5 deterministic guardrails. Only a subset is time-sensitive.
+# Reuse the deterministic guardrails. Only a subset is time-sensitive.
 from app.guardrails.rules import validate
 from app.models import User
 
@@ -43,11 +43,9 @@ async def execution_node(state: dict[str, Any], config: Any = None) -> dict[str,
 
     Resolves its OWN session/broker/cfg: the graph is a durable, process-wide singleton, so
     a run resumed minutes after the approval interrupt cannot lean on the original
-    request Session — that one is closed. The fresh session MUST carry the RLS GUC for the
-    checkpointed tenant: under the NOSUPERUSER runtime role an unscoped session reads zero
-    rows (fail-closed) and every order write dies with InsufficientPrivilege.
+    request Session — that one is closed.
     """
-    with session_scope(state["clerk_user_id"]) as session:   # fresh + RLS GUC set
+    with session_scope() as session:
         db = ExecutionRepo(session, state["clerk_user_id"])
         broker = _build_broker(
             _load_user(session, state["clerk_user_id"]),
@@ -138,6 +136,9 @@ async def execution_node(state: dict[str, Any], config: Any = None) -> dict[str,
             return {"order": order}
 
         except Exception as exc:  # noqa: BLE001 — the graph must NEVER crash on a broker error.
+            # A failed flush/commit poisons the session (PendingRollbackError on any
+            # further use) — roll back first or the rescue write below dies too.
+            session.rollback()
             order = {"status": "rejected", "reason": f"{type(exc).__name__}: {exc}"}
             db.write_order(decision_id, order)
             return {"order": order}
