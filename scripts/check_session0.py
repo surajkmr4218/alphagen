@@ -172,4 +172,5 @@ def _find_balance(payload) -> float | None:
 
 
 if __name__ == "__main__":
+    # sys.exit() used to communicate the script's success or failure back to the OS
     sys.exit(asyncio.run(main()))
