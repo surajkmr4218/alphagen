@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI):
     # The saver speaks raw psycopg so it needs a libpq URL, not the SQLAlchemy '+psycopg' form.
     conninfo = settings.database_url.replace("postgresql+psycopg://", "postgresql://")
     async with AsyncPostgresSaver.from_conn_string(conninfo) as checkpointer:
-        await checkpointer.setup()           # the saver's OWN tables (managed by LangGraph, independent of Alembic)
+        await checkpointer.setup()           # the saver's OWN tables (managed by LangGraph)
         scheduler = start_scheduler()        # reconcile cron; each tick owns its session/broker
         GRAPH = build_graph(checkpointer)    # singleton; build_graph takes only the checkpointer
         yield

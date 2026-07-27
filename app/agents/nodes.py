@@ -6,8 +6,8 @@ from datetime import date
 
 from app.agents.state import TradeState
 from app.config import guardrail_cfg, settings
-from app.guardrails.rules import validate
 from app.db import session_scope
+from app.guardrails.rules import validate
 
 MODEL = "gemini-3.1-flash-lite"   # reasoning nodes; bump to gemini-3.5-flash/3.1-pro if weak
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
@@ -47,7 +47,6 @@ def _json_call(prompt: str, system: str, max_tokens: int = 1500) -> dict:
 
 def research_node(state: TradeState) -> dict:
     """Assemble the evidence bundle: retrieve -> diff-annotate -> attach FMP signals."""
-    from app.db import SessionLocal
     from app.ingestion.fmp import attach_signals
     from app.rag.build import build_diff_bundle
 

@@ -32,7 +32,7 @@ class RobinhoodBroker:
                     "transport": "streamable_http",
                     "url": MCP_URL,
                     "auth": self._auth,  # OAuthClientProvider -> attaches/refreshes bearer token
-                    # Robinhood rejects the DELETE session-teardown (returns 400). Skip it — it's noise.
+                    # Robinhood rejects the DELETE session-teardown (returns 400). Skip it.
                     "terminate_on_close": False,
                 }}
             )

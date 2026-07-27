@@ -23,6 +23,6 @@ def session_scope() -> Generator[Session]:
     db = SessionLocal()
     try:
         yield db
-        db.commit()   # all adds/updates done inside the with block become permanent in the database.
+        db.commit()   # all adds/updates done inside with block become permanent in the database.
     finally:
         db.close()    # connection returns to the pool for reuse
