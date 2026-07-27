@@ -176,11 +176,10 @@ async def approve(
 @router.post("/reject/{decision_id}")
 def reject(
     decision_id: str,
-    reason: str = "",
     user: User = Depends(require_owner),
     repo: ExecutionRepo = Depends(get_repo),
 ):
-    repo.set_human_decision(decision_id, "rejected", user, reason=reason)
+    repo.set_human_decision(decision_id, "rejected", user)
     # Do NOT resume. The graph stays parked; no broker call ever happens.
     return {"decision_id": decision_id, "status": "rejected"}
 

@@ -37,7 +37,7 @@ async def reconcile_once(db, broker) -> None:
             continue
         state = st.get("state", order.status)
         fill_price = st.get("average_price") or st.get("executed_price")
-        db.update_order_status(order.decision_id, state, fill_price)
+        db.update_order_status(order.decision_id, state)
         if state == "filled" and fill_price and not db.outcome_exists(order.decision_id):
             db.open_outcome(order, fill_price=float(fill_price))   # partial: returns stay NULL
 

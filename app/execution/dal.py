@@ -101,9 +101,6 @@ class ExecutionRepo:
         if user_id:
             stmt = stmt.where(Order.user_id == user_id)
         return self.session.scalar(stmt) or 0
-    
-    def role_of(self, user: User) -> str:
-        return user.role
 
     def decisions_pending(self, user: User):
         # Decisions whose human_decision is still 'pending', scoped to the tenant explicitly.
@@ -112,7 +109,7 @@ class ExecutionRepo:
                                    Decision.human_decision == "pending")
         ).all()
 
-    def set_human_decision(self, decision_id: str, verdict: str, user, reason: str = "") -> None:
+    def set_human_decision(self, decision_id: str, verdict: str, user) -> None:
         dec = self.session.get(Decision, decision_id)
         if dec is not None:
             dec.human_decision = verdict          
@@ -123,10 +120,11 @@ class ExecutionRepo:
             select(Order).where(Order.status.in_(self._OPEN), Order.broker_order_id.isnot(None))
         ).all()
 
-    def update_order_status(self, decision_id: str, state: str, fill_price=None) -> None:
+    def update_order_status(self, decision_id: str, state: str) -> None:
+        # Status only — the fill price is recorded on the Outcome (see open_outcome).
         o = self.session.get(Order, decision_id)
         if o is not None:
-            o.status = state            
+            o.status = state
             self.session.commit()
 
     def outcome_exists(self, decision_id: str) -> bool:
