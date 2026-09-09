@@ -167,9 +167,20 @@ async def approve(
     user: User = Depends(require_owner),
     repo: ExecutionRepo = Depends(get_repo),
 ):
-    repo.set_human_decision(decision_id, "approved", user)
+    if not repo.claim_for_execution(decision_id):
+        raise HTTPException(status_code=409, detail="decision is not awaiting approval")
     cfg = {"configurable": {"thread_id": decision_id}}
-    final = await GRAPH.ainvoke(None, config=cfg)        # resumes -> runs the async execute node
+    try:
+        final = await GRAPH.ainvoke(None, config=cfg)    # resumes -> runs the async execute node
+    except Exception as exc:  # noqa: BLE001 — infra fault OUTSIDE the execute node (which never raises)
+        reason = f"{type(exc).__name__}: {exc}"
+        if repo.order_exists(decision_id) is None:       # never forget an already-placed order
+            repo.write_order(decision_id, {"status": "rejected", "reason": reason[:500]})
+        repo.set_human_decision(decision_id, "failed", user)
+        raise HTTPException(
+            status_code=500, detail="execution failed; see reasoning trail"
+        ) from exc
+    repo.set_human_decision(decision_id, "approved", user)
     return {"decision_id": decision_id, "order": final.get("order")}
 
 
@@ -253,6 +264,8 @@ def run_status(
         results = (d.guardrail or {}).get("results") or [{}]
         return {"decision_id": decision_id, "status": "failed",
                 "reason": results[0].get("reason")}
+    if d.human_decision == "placing":
+        return {"decision_id": decision_id, "status": "placing"}
     if d.human_decision == "pending":
         return {"decision_id": decision_id, "status": "pending-approval"}
     return {"decision_id": decision_id, "status": "complete", "human_decision": d.human_decision}

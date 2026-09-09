@@ -96,6 +96,7 @@ async def main() -> None:
             token_endpoint_auth_method="none",  # public client (no secret); needs DCR support
         )
 
+        # Handles authentication and acts as middleware for HTTP transport
         auth = OAuthClientProvider(
             server_url=MCP_URL,
             client_metadata=client_metadata,
@@ -109,7 +110,7 @@ async def main() -> None:
             follow_redirects=True,
             timeout=httpx.Timeout(30.0, read=300.0),
         ) as http_client:
-            async with streamable_http_client(MCP_URL, http_client=http_client) as (read, write, _):
+            async with streamable_http_client(MCP_URL, http_client=http_client) as (read, write, _): # The "client" session
                 async with ClientSession(read, write) as session:
                     await session.initialize()
 

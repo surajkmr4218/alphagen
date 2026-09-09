@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.models import Decision, Order, Outcome, User
@@ -109,6 +109,25 @@ class ExecutionRepo:
                                    Decision.human_decision == "pending")
         ).all()
 
+    def claim_for_execution(self, decision_id: str) -> bool:
+        """Atomically move 'pending' -> 'placing'; True only for the caller that won.
+
+        ONE conditional UPDATE is what makes two overlapping approves safe: Postgres
+        serializes them and exactly one sees rowcount == 1, so only that caller resumes
+        the graph. A double click or a timeout-and-retry gets 409 instead of a second order.
+        """
+        result = self.session.execute(
+            update(Decision)
+            .where(
+                Decision.decision_id == decision_id,
+                Decision.user_id == self.user_id,
+                Decision.human_decision == "pending",
+            )
+            .values(human_decision="placing")
+        )
+        self.session.commit()
+        return result.rowcount == 1
+
     def set_human_decision(self, decision_id: str, verdict: str, user) -> None:
         dec = self.session.get(Decision, decision_id)
         if dec is not None:
@@ -166,6 +185,7 @@ class ExecutionRepo:
     # --- consumed by the UI run-submission endpoints (dashboard upgrades) ----
     # Run state lives in Decision.human_decision: 'running' -> 'pending' (parked at the
     # approval gate) | 'rejected' (system-resolved: critic/guardrail/abstain) | 'failed'.
+    # From the gate, approval claims the row: 'pending' -> 'placing' -> 'approved' | 'failed'.
     def create_running_decision(self, decision_id: str, ticker: str, user_id: str) -> None:
         """Stub row inserted BEFORE the pipeline starts, so run status is DB-backed.
 
@@ -194,10 +214,14 @@ class ExecutionRepo:
     def pending_decisions_for(self, ticker: str) -> list[Decision]:
         """'pending' candidates for the one-active-run check. The caller must confirm each
         is actually parked at the execute interrupt (aget_state) — legacy critic-rejected
-        rows sit at 'pending' forever without being parked and must not block."""
+        rows sit at 'pending' forever without being parked and must not block.
+
+        'placing' counts too: an order is mid-flight for this ticker, so a second run
+        must not start behind it."""
         return list(self.session.scalars(
             self._scoped(select(Decision), Decision.user_id).where(
-                Decision.ticker == ticker.upper(), Decision.human_decision == "pending"
+                Decision.ticker == ticker.upper(),
+                Decision.human_decision.in_(["pending", "placing"]),
             )
         ))
 

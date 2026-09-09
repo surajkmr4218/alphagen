@@ -59,7 +59,7 @@ export interface DecisionSummary {
   decision_id: string;
   ticker: string;
   passed: boolean;
-  human_decision: "pending" | "approved" | "rejected" | "running" | "failed";
+  human_decision: "pending" | "placing" | "approved" | "rejected" | "running" | "failed";
   created_at: string;
   size_usd?: number | null;            
   order_status?: string | null;
@@ -83,7 +83,7 @@ export interface NewRunResponse {
 
 export interface RunStatus {
   decision_id: string;
-  status: "running" | "failed" | "pending-approval" | "complete";
+  status: "running" | "placing" | "failed" | "pending-approval" | "complete";
   reason?: string | null;
   human_decision?: string;
 }

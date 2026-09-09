@@ -29,7 +29,7 @@ type Tab = (typeof TABS)[number];
 const inTab = (d: DecisionSummary, tab: Tab) =>
   tab === "all" ? true
   : tab === "queue" ? (d.human_decision === "pending" && d.passed) || d.human_decision === "running"
-  : tab === "approved" ? d.human_decision === "approved"
+  : tab === "approved" ? d.human_decision === "approved" || d.human_decision === "placing"
   : d.human_decision === "rejected" || d.human_decision === "failed";
 
 const pct = (v: number) => `${v > 0 ? "+" : ""}${v}%`;
@@ -53,6 +53,7 @@ export default function Dashboard({ me }: { me: Me }) {
   const live =
     sel != null &&
     (sel.human_decision === "running" ||
+      sel.human_decision === "placing" ||
       (sel.human_decision === "approved" &&
         sel.order_status != null &&
         !["filled", "rejected"].includes(sel.order_status)));
