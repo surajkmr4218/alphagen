@@ -108,7 +108,8 @@ class Decision(Base):
     guardrail: Mapped[dict] = mapped_column(JSON, default=dict)     
     passed: Mapped[bool] = mapped_column(Boolean, default=False)    # all HARD rules passed
     user_id: Mapped[str] = mapped_column(String(64), default="owner", index=True)
-    human_decision: Mapped[str] = mapped_column(String(16), default="pending") # approved/rejected/pending/placing
+    # human_decision is in ["approved", "rejected", "pending", "placing"]
+    human_decision: Mapped[str] = mapped_column(String(16), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

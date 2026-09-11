@@ -110,7 +110,8 @@ async def main() -> None:
             follow_redirects=True,
             timeout=httpx.Timeout(30.0, read=300.0),
         ) as http_client:
-            async with streamable_http_client(MCP_URL, http_client=http_client) as (read, write, _): # The "client" session
+            # This is the "client" session that connects to MCP
+            async with streamable_http_client(MCP_URL, http_client=http_client) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
 
