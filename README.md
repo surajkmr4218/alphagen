@@ -42,7 +42,7 @@ The graph is compiled **once per process** against LangGraph's `AsyncPostgresSav
 Retrieval is a three-stage hybrid ranker, evaluated against a golden dataset:
 
 ```
-dense (pgvector cosine, 384-dim MiniLM)  ─┐
+dense (pgvector cosine, 384-dim bge-small) ─┐
                                           ├─► Reciprocal Rank Fusion ─► cross-encoder rerank ─► top-k
 sparse (BM25 over the filing corpus)     ─┘         (ms-marco-MiniLM-L-6-v2)
 ```
@@ -51,13 +51,18 @@ On top of retrieval sits a **semantic diff engine** (embedding cosine over sente
 
 ## Measured metrics against Golden Set
 
-Retrieval quality and safety behavior are asserted in CI on every push — the numbers below are from the pipeline, not estimates:
+Retrieval is scored end-to-end through the production functions in `app/rag/retrieve.py` over the **full per-ticker pool** (~130 chunks: Item 1A + Item 7 of one pinned 10-K), not a hand-picked shortlist. Each row is one stage of the retriever, so the table shows what each stage buys:
 
-| What | Result | How it's enforced |
-|---|---|---|
-| Retrieval precision@5 | **0.72** (mean, dense stage) | per-query floor of 0.40 fails the build — a ratchet, raised as retrieval improves |
-| Retrieval recall | **1.00** (mean, dense stage) | CI floor of 0.50 |
-| Golden dataset | 15 labeled queries over real 10-K sections | versioned in-repo; gates every merge |
+| strategy | R-precision | recall@10 | MRR | precision@5 (ceiling 0.97) |
+|---|---|---|---|---|
+| dense (pgvector cosine) | 0.600 | 0.596 | 0.913 | 0.680 |
+| bm25 (sparse, in-memory) | 0.555 | 0.613 | 0.865 | 0.640 |
+| rrf (dense + bm25, reciprocal rank fusion) | 0.623 | 0.703 | 0.911 | 0.693 |
+| **hybrid (rrf + cross-encoder rerank — the production path)** | **0.695** | **0.782** | **1.000** | **0.787** |
+
+**Methodology.** 15 hand-written queries, 3 per ticker (AAPL, META, MSFT, NVDA, TSLA), 128 labeled relevant chunks, ranked to depth 30 and cut at `k=10` for recall and precision@5. R-precision is the headline number: precision at R where R is that query's gold-set size, so a perfect ranker scores exactly 1.0. Recall@10 is capped below 1.0 for the four queries with more than ten relevant chunks. Labels are pinned to a filing accession and resolve by content hash, so re-ingesting the corpus cannot silently break them. The original labels (2026-06-22) were made from an 8–9 chunk shortlist per query; a second pass over every unlabeled top-10 candidate (237 chunks) added 74 labels and was **judged by Claude in-session, not by the original labeler** — every addition and its justification is in `app/eval/results/judgments-2026-09.md`.
+
+**Enforcement.** Pure metric and retrieval-stage tests run in CI on every push. The DB-backed suite in `app/eval/test_rag.py` runs locally against Postgres + pgvector and fails if the production path or the dense stage drops below its ratchet floor. Results are committed to `app/eval/results/latest.json`; reproduce with `uv run python -m app.eval.ablation`.
 
 One live trade has completed the full lifecycle, proposed, cited, critiqued, approved, executed, reconciled, resulting in a **positive** return. 
 
@@ -69,7 +74,7 @@ One live trade has completed the full lifecycle, proposed, cited, critiqued, app
 - **Layered risk controls** — a ticker allowlist, per-trade and total-exposure notional caps, a daily trade rate limit, and a daily-loss kill-switch that halts all trading, all enforced as hard rules independent of any model output.
 - **Multi-tenant isolation** — every query scopes explicitly by `user_id` through the repo layer, so tenant filtering lives in one place. Clerk handles authentication end-to-end (JWT-verified API, React SDK on the frontend).
 - **Real brokerage integration** — Robinhood's Trading MCP server via `langchain-mcp-adapters`, with full OAuth token lifecycle management and Fernet-encrypted token storage at rest.
-- **Continuous evaluation** — a golden-dataset RAG eval harness and A/B embedding comparisons keep retrieval quality measurable (see the metrics table above) with guardrails and API behavior are covered by pytest.
+- **Measured retrieval, stage by stage** — a golden-dataset harness scores dense, BM25, RRF, and the cross-encoder rerank through the production code over the full corpus, with ratchet floors and committed results (see the table above). Guardrails and each retrieval stage are covered by pytest.
 
 ## Tech stack
 
