@@ -1,0 +1,211 @@
+{
+  "run_at": "2026-09-11T15:50:44+00:00",
+  "git_sha": "97bd9a7",
+  "embed_model": "BAAI/bge-small-en-v1.5",
+  "reranker": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+  "k": 10,
+  "candidate_k": 30,
+  "n_queries": 15,
+  "results": {
+    "dense": {
+      "n_queries": 15,
+      "r_precision": 0.5997739297739297,
+      "recall_at_k": 0.5960281385281385,
+      "mrr": 0.9133333333333333,
+      "precision_at_5": 0.68,
+      "precision_at_5_ceiling": 0.9733333333333333,
+      "per_ticker": {
+        "AAPL": {
+          "n_queries": 3,
+          "r_precision": 0.5722222222222223,
+          "recall_at_k": 0.6277777777777778,
+          "mrr": 0.8333333333333334,
+          "precision_at_5": 0.6,
+          "precision_at_5_ceiling": 0.9333333333333332
+        },
+        "META": {
+          "n_queries": 3,
+          "r_precision": 0.6843434343434343,
+          "recall_at_k": 0.6218434343434344,
+          "mrr": 1.0,
+          "precision_at_5": 0.8666666666666667,
+          "precision_at_5_ceiling": 1.0
+        },
+        "MSFT": {
+          "n_queries": 3,
+          "r_precision": 0.7727272727272728,
+          "recall_at_k": 0.797979797979798,
+          "mrr": 1.0,
+          "precision_at_5": 0.8000000000000002,
+          "precision_at_5_ceiling": 1.0
+        },
+        "NVDA": {
+          "n_queries": 3,
+          "r_precision": 0.39814814814814814,
+          "recall_at_k": 0.3055555555555555,
+          "mrr": 0.7333333333333334,
+          "precision_at_5": 0.4666666666666666,
+          "precision_at_5_ceiling": 0.9333333333333332
+        },
+        "TSLA": {
+          "n_queries": 3,
+          "r_precision": 0.5714285714285715,
+          "recall_at_k": 0.626984126984127,
+          "mrr": 1.0,
+          "precision_at_5": 0.6666666666666666,
+          "precision_at_5_ceiling": 1.0
+        }
+      }
+    },
+    "bm25": {
+      "n_queries": 15,
+      "r_precision": 0.5545719095719096,
+      "recall_at_k": 0.6131697931697933,
+      "mrr": 0.8650793650793651,
+      "precision_at_5": 0.64,
+      "precision_at_5_ceiling": 0.9733333333333333,
+      "per_ticker": {
+        "AAPL": {
+          "n_queries": 3,
+          "r_precision": 0.7388888888888889,
+          "recall_at_k": 0.7944444444444444,
+          "mrr": 1.0,
+          "precision_at_5": 0.7999999999999999,
+          "precision_at_5_ceiling": 0.9333333333333332
+        },
+        "META": {
+          "n_queries": 3,
+          "r_precision": 0.5585016835016835,
+          "recall_at_k": 0.5538720538720538,
+          "mrr": 1.0,
+          "precision_at_5": 0.7999999999999999,
+          "precision_at_5_ceiling": 1.0
+        },
+        "MSFT": {
+          "n_queries": 3,
+          "r_precision": 0.5151515151515151,
+          "recall_at_k": 0.5151515151515151,
+          "mrr": 1.0,
+          "precision_at_5": 0.4666666666666666,
+          "precision_at_5_ceiling": 1.0
+        },
+        "NVDA": {
+          "n_queries": 3,
+          "r_precision": 0.38888888888888884,
+          "recall_at_k": 0.5833333333333334,
+          "mrr": 0.5476190476190476,
+          "precision_at_5": 0.4666666666666666,
+          "precision_at_5_ceiling": 0.9333333333333332
+        },
+        "TSLA": {
+          "n_queries": 3,
+          "r_precision": 0.5714285714285715,
+          "recall_at_k": 0.6190476190476191,
+          "mrr": 0.7777777777777778,
+          "precision_at_5": 0.6666666666666666,
+          "precision_at_5_ceiling": 1.0
+        }
+      }
+    },
+    "rrf": {
+      "n_queries": 15,
+      "r_precision": 0.6231613756613756,
+      "recall_at_k": 0.7025925925925925,
+      "mrr": 0.9111111111111111,
+      "precision_at_5": 0.6933333333333334,
+      "precision_at_5_ceiling": 0.9733333333333333,
+      "per_ticker": {
+        "AAPL": {
+          "n_queries": 3,
+          "r_precision": 0.7166666666666667,
+          "recall_at_k": 0.8555555555555555,
+          "mrr": 1.0,
+          "precision_at_5": 0.6666666666666666,
+          "precision_at_5_ceiling": 0.9333333333333332
+        },
+        "META": {
+          "n_queries": 3,
+          "r_precision": 0.7186447811447811,
+          "recall_at_k": 0.6931818181818182,
+          "mrr": 1.0,
+          "precision_at_5": 0.8666666666666667,
+          "precision_at_5_ceiling": 1.0
+        },
+        "MSFT": {
+          "n_queries": 3,
+          "r_precision": 0.5151515151515151,
+          "recall_at_k": 0.6262626262626262,
+          "mrr": 1.0,
+          "precision_at_5": 0.7333333333333334,
+          "precision_at_5_ceiling": 1.0
+        },
+        "NVDA": {
+          "n_queries": 3,
+          "r_precision": 0.46296296296296297,
+          "recall_at_k": 0.49074074074074076,
+          "mrr": 0.5555555555555556,
+          "precision_at_5": 0.5333333333333333,
+          "precision_at_5_ceiling": 0.9333333333333332
+        },
+        "TSLA": {
+          "n_queries": 3,
+          "r_precision": 0.7023809523809524,
+          "recall_at_k": 0.8472222222222222,
+          "mrr": 1.0,
+          "precision_at_5": 0.6666666666666666,
+          "precision_at_5_ceiling": 1.0
+        }
+      }
+    },
+    "hybrid": {
+      "n_queries": 15,
+      "r_precision": 0.69493265993266,
+      "recall_at_k": 0.7819276094276095,
+      "mrr": 1.0,
+      "precision_at_5": 0.7866666666666667,
+      "precision_at_5_ceiling": 0.9733333333333333,
+      "per_ticker": {
+        "AAPL": {
+          "n_queries": 3,
+          "r_precision": 0.8277777777777778,
+          "recall_at_k": 0.8277777777777778,
+          "mrr": 1.0,
+          "precision_at_5": 0.7999999999999999,
+          "precision_at_5_ceiling": 0.9333333333333332
+        },
+        "META": {
+          "n_queries": 3,
+          "r_precision": 0.7516835016835017,
+          "recall_at_k": 0.6891835016835017,
+          "mrr": 1.0,
+          "precision_at_5": 0.9333333333333332,
+          "precision_at_5_ceiling": 1.0
+        },
+        "MSFT": {
+          "n_queries": 3,
+          "r_precision": 0.6868686868686869,
+          "recall_at_k": 0.8232323232323232,
+          "mrr": 1.0,
+          "precision_at_5": 0.8666666666666667,
+          "precision_at_5_ceiling": 1.0
+        },
+        "NVDA": {
+          "n_queries": 3,
+          "r_precision": 0.5,
+          "recall_at_k": 0.6666666666666666,
+          "mrr": 1.0,
+          "precision_at_5": 0.5333333333333333,
+          "precision_at_5_ceiling": 0.9333333333333332
+        },
+        "TSLA": {
+          "n_queries": 3,
+          "r_precision": 0.7083333333333334,
+          "recall_at_k": 0.9027777777777778,
+          "mrr": 1.0,
+          "precision_at_5": 0.7999999999999999,
+          "precision_at_5_ceiling": 1.0
+        }
+      }
+    }
+  }
+}
