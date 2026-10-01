@@ -19,12 +19,19 @@ def _reranker():
     return CrossEncoder(_RERANKER_NAME)
 
 
-def dense(db: Session, query: str, k: int = 30, ticker: str | None = None) -> list[tuple[int, str]]:
+def dense(
+    db: Session,
+    query: str,
+    k: int = 30,
+    ticker: str | None = None,
+    accession: str | None = None,
+) -> list[tuple[int, str]]:
     """Dense semantic retrieval via pgvector cosine distance.
 
     Embeds the query, then orders chunks by the `<=>` cosine-distance operator (smaller = closer).
-    The metadata filter is applied IN SQL so we never pull non-matching rows: when `ticker` is None
-    the predicate is a no-op, otherwise it restricts to chunks whose meta JSON ticker matches.
+    The metadata filters are applied IN SQL so we never pull non-matching rows: a None filter is
+    a no-op. Production scopes by `ticker`; the eval harness scopes by `accession` so the pool is
+    exactly the pinned filing the golden labels were made against.
     """
     qv = embed([query])[0]  # 384-dim, already normalized (see embed.py)
     rows = db.execute(
@@ -35,13 +42,14 @@ def dense(db: Session, query: str, k: int = 30, ticker: str | None = None) -> li
             -- Cast :ticker to text: it appears first in `IS NULL`, where Postgres can't infer the
             -- param type from psycopg's binary protocol and errors without an explicit type.
             WHERE ((:ticker)::text IS NULL OR meta->>'ticker' = (:ticker)::text)
+              AND ((:accession)::text IS NULL OR meta->>'accession' = (:accession)::text)
             -- Cast :qv to vector: psycopg sends str(qv) as `text`, and pgvector's `<=>` is only
             -- defined as vector<=>vector, so without the cast Postgres throws.
             ORDER BY embedding <=> (:qv)::vector
             LIMIT :k
             """
         ),
-        {"ticker": ticker, "qv": str(qv), "k": k},
+        {"ticker": ticker, "accession": accession, "qv": str(qv), "k": k},
     ).fetchall()
     return [(r.id, r.text) for r in rows]
 
@@ -69,8 +77,9 @@ def rrf(*rankings: list[int], k: int = 60) -> list[tuple[int, float]]:
 
     Each argument is a ranked list of ids (best first). An id's fused score is the sum over the
     lists it appears in of 1 / (k + rank). `k` (the standard 60) damps the influence of any single
-    list's top spot so one retriever can't dominate. Returns ids sorted by fused score, descending.
-    We accept *rankings for flexibility (e.g. a third sparse signal); today it's dense + BM25.
+    list's top spot so one retriever can't dominate. Studies have shown that k = 60 performs best.
+    Returns ids sorted by fused score, descending. We accept *rankings for flexibility 
+    (e.g. a third sparse signal); right now it's dense + BM25.
     """
     scores: dict[int, float] = defaultdict(float)
     for ranking in rankings:
@@ -87,8 +96,14 @@ def hybrid(
     k: int = 8,
     ticker: str | None = None,
     candidate_k: int = 30,
+    accession: str | None = None,
+    rerank: bool = True,
 ) -> list[tuple[int, float]]:
     """Full retrieval path: dense + BM25 -> RRF fuse -> cross-encoder rerank.
+
+    `rerank=False` stops after fusion and returns the top-`k` (chunk_id, rrf_score) pairs —
+    used by the eval ablation to measure what the cross-encoder buys. `accession` narrows the
+    dense stage to one filing (eval only; production scopes by ticker).
 
     `corpus_texts`/`corpus_ids` are the candidate pool (one ticker's chunks) for BM25 (and the 
     source of passage text for the reranker). `db` is the pgvector session for dense; pass None
@@ -100,7 +115,7 @@ def hybrid(
     # Stage 1 — two complementary candidate lists.
     dense_ids: list[int] = []
     if db is not None:
-        dense_hits = dense(db, query, k=candidate_k, ticker=ticker)
+        dense_hits = dense(db, query, k=candidate_k, ticker=ticker, accession=accession)
         dense_ids = [cid for cid, _ in dense_hits]
         # Keep dense passages available to the reranker even if absent from the BM25 corpus.
         for cid, txt in dense_hits:
@@ -109,6 +124,8 @@ def hybrid(
 
     # Stage 2 — fuse rankings (RRF). Scale-free, so dense distance vs BM25 score never clash.
     fused = rrf(dense_ids, sparse_ids)
+    if not rerank:  # fusion-only for the eval ablation test 
+        return [(cid, float(score)) for cid, score in fused[:k]]
     candidates = [cid for cid, _ in fused[:candidate_k]]
     if not candidates:
         return []

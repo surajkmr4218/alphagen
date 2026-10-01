@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import re
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -9,6 +11,12 @@ from app.models import Chunk, Filing
 from app.rag.embed import embed
 
 PARA_SPLIT = re.compile(r"\n+")  # split on any newline run (SEC text uses single \n)
+
+
+def text_sha(text: str) -> str:
+    """md5 hash of the chunk text — the content key behind the chunks unique index."""
+    return hashlib.md5(text.encode("utf-8")).hexdigest()
+
 
 def chunk_section(text: str, target: int = 1200, overlap: int = 150) -> list[str]:
     """Pack text lines into ~target-char chunks with a char overlap tail.
@@ -83,10 +91,19 @@ def persist_filing_chunks(
     """Chunk a filing's sections, embed (blurb+chunk), and insert Chunk rows.
 
     `sections` lets you restrict to e.g. ["item 1a", "item 7"]; default
-    is every section present on the filing. Returns the number of chunks written.
+    is every section present on the filing. Idempotent: a (section, text) pair already
+    stored for this filing is skipped, so re-running never duplicates rows. Returns the
+    number of chunks written.
     """
     ticker = filing.ticker.upper()  # convention: always upper-keyed
     items = sections or list(filing.sections.keys())
+
+    # skip re-running duplicate rows when (section, text_sha) already present
+    existing = set(
+        session.execute(
+            select(Chunk.section, Chunk.text_sha).where(Chunk.filing_id == filing.id)
+        ).all()
+    )
 
     rows: list[Chunk] = []
     blurbs: list[str] = []
@@ -97,6 +114,10 @@ def persist_filing_chunks(
         if not section_text:
             continue
         for chunk in chunk_section(section_text):
+            key = (item, text_sha(chunk))
+            if key in existing:
+                continue
+            existing.add(key)  # also dedups within this batch
             blurb = ""
             if do_blurbs:
                 try:
@@ -105,6 +126,9 @@ def persist_filing_chunks(
                     blurb = ""
             blurbs.append(blurb)
             payloads.append((item, chunk))
+
+    if not payloads:
+        return 0
 
     # one batched embed call over (blurb + chunk) concatenations
     to_embed = [f"{b}\n{c}" if b else c for b, (_, c) in zip(blurbs, payloads)]
@@ -116,6 +140,7 @@ def persist_filing_chunks(
                 filing_id=filing.id,
                 section=section,
                 text=chunk,
+                text_sha=text_sha(chunk),
                 context_blurb=blurb,
                 embedding=vec,
                 meta={"ticker": ticker, "accession": filing.accession},

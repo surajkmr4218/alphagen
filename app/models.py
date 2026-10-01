@@ -46,6 +46,7 @@ class Chunk(Base):
     filing_id: Mapped[int] = mapped_column(ForeignKey("filings.id"), index=True)
     section: Mapped[str] = mapped_column(String(64))
     text: Mapped[str] = mapped_column(Text)
+    text_sha: Mapped[str] = mapped_column(String(32))  # cheap hash function of chunk
     context_blurb: Mapped[str | None] = mapped_column(Text)      
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384))  
     meta: Mapped[dict] = mapped_column(JSON, default=dict)       

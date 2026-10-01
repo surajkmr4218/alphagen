@@ -26,3 +26,18 @@ def session_scope() -> Generator[Session]:
         db.commit()   # all adds/updates done inside with block become permanent in the database.
     finally:
         db.close()    # connection returns to the pool for reuse
+
+
+def db_available() -> bool:
+    """
+    Checks if database server is online, credentials are right, or network is reachable.
+    Only used by tests so they skip instead of error when there's no Postgres
+    """
+    from sqlalchemy import text
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
