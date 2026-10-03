@@ -74,6 +74,29 @@ def filings_of(subs: dict, form: str, n: int = 1) -> list[dict]:
     return out
 
 
+def filing_meta(subs: dict, accession: str) -> dict:
+    """Pick one filing from the submissions blob by accession number (same row shape as
+    `filings_of`). Raises LookupError if the accession is not among the recent filings."""
+    recent = subs["filings"]["recent"]
+    rows = zip(
+        recent["form"],
+        recent["accessionNumber"],
+        recent["primaryDocument"],
+        recent["filingDate"],
+        recent["reportDate"],
+    )
+    for form_type, acc, primary_doc, filing_date, report_date in rows:
+        if acc == accession:
+            return {
+                "form_type": form_type,
+                "accession": acc,
+                "primary_doc": primary_doc,
+                "filing_date": filing_date,
+                "report_date": report_date,
+            }
+    raise LookupError(f"accession {accession} not in recent submissions")
+
+
 def fetch_doc(cik: str, accession: str, primary_doc: str, client: httpx.Client) -> str:
     """Fetch the primary document HTML and flatten to text."""
     acc_nodash = accession.replace("-", "")
@@ -160,22 +183,41 @@ def ingest_recent(
         if existing is not None:
             out.append(existing)
             continue
-        text = fetch_doc(cik, meta["accession"], meta["primary_doc"], client)
-        rd = meta["report_date"]
-        filing = Filing(
-            ticker=ticker.upper(),
-            cik=cik,
-            form_type=meta["form_type"],
-            accession=meta["accession"],
-            report_date=date.fromisoformat(rd) if rd else None,
-            filed_at=datetime.fromisoformat(meta["filing_date"]),
-            sections=split_sections(text),
-        )
-        db.add(filing)
-        db.commit()
-        db.refresh(filing)
-        out.append(filing)
+        out.append(_ingest_meta(ticker, cik, meta, db, client))
     return out
+
+
+def _ingest_meta(ticker: str, cik: str, meta: dict, db: Session, client: httpx.Client) -> Filing:
+    """Fetch, split, and store one filing described by a submissions row."""
+    text = fetch_doc(cik, meta["accession"], meta["primary_doc"], client)
+    rd = meta["report_date"]
+    filing = Filing(
+        ticker=ticker.upper(),
+        cik=cik,
+        form_type=meta["form_type"],
+        accession=meta["accession"],
+        report_date=date.fromisoformat(rd) if rd else None,
+        filed_at=datetime.fromisoformat(meta["filing_date"]),
+        sections=split_sections(text),
+    )
+    db.add(filing)
+    db.commit()
+    db.refresh(filing)
+    return filing
+
+
+def ingest_accession(
+    ticker: str, cik: str, accession: str, db: Session, client: httpx.Client
+) -> Filing:
+    """Ingest one specific filing by accession (returns the stored row if already present).
+
+    Used by the eval golden ingest so the labeled snapshot is reproducible regardless of what
+    the issuer has filed since."""
+    existing = db.scalars(select(Filing).where(Filing.accession == accession)).first()
+    if existing is not None:
+        return existing
+    meta = filing_meta(submissions(cik, client), accession)
+    return _ingest_meta(ticker, cik, meta, db, client)
 
 
 # Sections the analyst pipeline retrieves over — mirrors scripts/ingest_golden.py.
