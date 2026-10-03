@@ -1,74 +1,73 @@
-from __future__ import annotations
+"""Retrieval-quality ratchets: the golden set scored through the PRODUCTION retriever.
 
-import json
-from pathlib import Path
+Every ranking here comes from `app.rag.retrieve` over the full pool of the pinned filing
+(~130 chunks), via `app.eval.ablation`. Needs Postgres + pgvector with the pinned filings
+ingested (`uv run python -m scripts.ingest_golden`). Skips cleanly when no database is
+reachable (CI has none); fails loudly if any golden label does not resolve.
+
+Floors are ratchets: set slightly below the last honest run and raised as retrieval improves.
+Last run: app/eval/results/latest.json.
+"""
+
+from __future__ import annotations
 
 import pytest
 
-from app.eval.ab_embeddings import _dense_rank  # reuse the DB-free dense ranker
+from app.eval import ablation
+from app.eval.golden import load
+from app.eval.metrics import precision_at_k
 
-GOLD = json.loads((Path(__file__).parent / "golden.json").read_text())
-DEFAULT_MODEL = "BAAI/bge-small-en-v1.5"
+GOLD = load()
 
-# --- pure metric functions (no DB, no model) --------------------------------------------------
-
-
-def precision_at_k(retrieved: list[int], relevant: set[int], k: int) -> float:
-    """Fraction of the top-k retrieved ids that are relevant."""
-    top = retrieved[:k]
-    if not top:
-        return 0.0
-    return sum(1 for cid in top if cid in relevant) / len(top)
+# Populated once per test session by `rankings`; conftest prints RESULTS after the suite.
+RESULTS: dict[str, dict] = {}
+_RANKINGS: dict[str, list[ablation.Ranking]] = {}
 
 
-def recall(retrieved: list[int], relevant: set[int]) -> float:
-    """Fraction of relevant ids that were retrieved (anywhere in the list)."""
-    if not relevant:
-        return 1.0
-    return sum(1 for cid in relevant if cid in retrieved) / len(relevant)
+@pytest.fixture(scope="module")
+def rankings() -> dict[str, list[ablation.Ranking]]:
+    from app.db import SessionLocal, db_available
+
+    if not db_available():
+        pytest.skip("no database reachable — DB-backed retrieval eval skipped")
+    if not _RANKINGS:
+        with SessionLocal() as db:
+            _RANKINGS.update(ablation.rank_all(db, GOLD))  # raises if labels don't resolve
+        RESULTS.update({name: ablation.score_rankings(r) for name, r in _RANKINGS.items()})
+    return _RANKINGS
 
 
-def _rank_case(case: dict) -> list[int]:
-    return _dense_rank(DEFAULT_MODEL, case["query"], case["corpus_texts"], case["corpus_ids"])
+# RATCHET: raise these as retrieval improves. Observed 2026-09-11 (post-judgment labels):
+#   hybrid  R-prec 0.695  recall@10 0.782  MRR 1.000
+#   dense   R-prec 0.600  recall@10 0.596  MRR 0.913
+FLOORS: dict[str, dict[str, float]] = {
+    "hybrid": {"r_precision": 0.65, "recall_at_k": 0.72, "mrr": 0.95},  # production path
+    "dense": {"r_precision": 0.55, "recall_at_k": 0.55, "mrr": 0.85},   # first stage alone
+}
+# RATCHET: weakest hybrid query (NVDA foundries) scores 0.2; 0.15 leaves headroom for float
+# noise while still failing if that query's one top-5 hit is lost (p@5 is a multiple of 0.2).
+PER_QUERY_P5_FLOOR = 0.15
 
 
-# --- retrieval quality ------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "strategy,metric", [(s, m) for s in FLOORS for m in FLOORS[s]], ids=lambda v: v
+)
+def test_mean_metric_floor(rankings, strategy: str, metric: str) -> None:
+    got = RESULTS[strategy][metric]
+    floor = FLOORS[strategy][metric]
+    assert got >= floor, f"{strategy} {metric} {got:.3f} < floor {floor}"
 
-PRECISION_AT_5_FLOOR = 0.4  # RATCHET: raise this as retrieval improves.
 
-
-@pytest.mark.parametrize("case", GOLD, ids=[c["query"][:40] for c in GOLD])
-def test_precision_at_5(case: dict) -> None:
-    retrieved = _rank_case(case)
-    p = precision_at_k(retrieved, set(case["relevant_chunk_ids"]), k=5)
-    assert p >= PRECISION_AT_5_FLOOR, (
-        f"precision@5 {p:.3f} < {PRECISION_AT_5_FLOOR} for: {case['query']}"
+@pytest.mark.parametrize("i", range(len(GOLD)), ids=[c["query"][:40] for c in GOLD])
+def test_hybrid_precision_at_5_per_query(rankings, i: int) -> None:
+    ranked, relevant, _ = rankings["hybrid"][i]
+    p = precision_at_k(ranked, relevant, k=5)
+    assert p >= PER_QUERY_P5_FLOOR, (
+        f"hybrid precision@5 {p:.2f} < {PER_QUERY_P5_FLOOR} for: {GOLD[i]['query']}"
     )
 
 
-def test_mean_recall() -> None:
-    recalls = [recall(_rank_case(c), set(c["relevant_chunk_ids"])) for c in GOLD]
-    mean_recall = sum(recalls) / len(recalls)
-    assert mean_recall >= 0.5, f"mean recall {mean_recall:.3f} < 0.5"
-
-
-# --- citation accuracy: every cited span must resolve to a real corpus chunk ------------------
-
-
-def test_citations() -> None:
-    """A citation is valid only if its chunk id exists in that case's corpus.
-
-    Stand-in for the agent's behavior (Week 4): hypotheses cite chunk ids, and a cited span that
-    doesn't resolve is a broken citation. Here we assert the labeled relevant ids themselves all
-    resolve — the invariant the agent must also satisfy.
-    """
-    unresolved = 0
-    total = 0
-    for case in GOLD:
-        corpus = set(case["corpus_ids"])
-        for cid in case["relevant_chunk_ids"]:
-            total += 1
-            if cid not in corpus:
-                unresolved += 1
-    accuracy = 1.0 - (unresolved / total if total else 0.0)
-    assert accuracy == 1.0, f"citation accuracy {accuracy:.3f}: {unresolved}/{total} unresolved"
+def test_hybrid_beats_every_single_stage_on_r_precision(rankings) -> None:
+    """The reranker must earn its keep — otherwise production should not pay for it."""
+    best_single = max(RESULTS[s]["r_precision"] for s in ("dense", "bm25"))
+    assert RESULTS["hybrid"]["r_precision"] > best_single
