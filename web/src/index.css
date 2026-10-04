@@ -1,20 +1,39 @@
 @import "tailwindcss";
 
-@theme {
-  --color-bg: #0a0e14;
-  --color-surface: #10161f;
-  --color-inset: #0c1118;
-  --color-edge: #1d2735;
-  --color-edge-bright: #2c3b52;
-  --color-ink: #e8edf6;
-  --color-muted: #8091a8;
-  --color-faint: #566379;
-  --color-up: #00c896;
-  --color-down: #ff4d5e;
-  --color-warn: #f0b429;
+/* ---------------------------------------------------------------------------
+ * AlphaGen theme — dark only.
+ *
+ * Colour rules:
+ *   up / down / warn are semantic (profit, pass, filled / loss, fail, blocked /
+ *   pending, stale, running) and never colour chrome.
+ *   accent is the only interaction colour: focus rings, selection, active tabs.
+ *
+ * Type rules:
+ *   sans  — anything the UI, the model, or the critic wrote
+ *   mono  — tickers, money, percentages, accession numbers, rule ids
+ *   serif — text quoted verbatim from an SEC filing
+ * ------------------------------------------------------------------------ */
 
-  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+@theme {
+  --color-bg: #0b0f14;
+  --color-surface: #111721;
+  --color-inset: #0d1219;
+  --color-edge: #1c2532;
+  --color-edge-bright: #2b3a4f;
+  --color-ink: #e6ecf5;
+  --color-muted: #8b9bb1;
+  --color-faint: #5b6b81;
+  --color-accent: #8fb4ff;
+  --color-up: #22c99a;
+  --color-down: #ff5c6c;
+  --color-warn: #f2b63a;
+
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-in-quart: cubic-bezier(0.5, 0, 0.75, 0);
 }
 
 :root {
@@ -25,6 +44,11 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: var(--color-bg);
@@ -32,35 +56,180 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   line-height: 1.55;
+  overflow-x: hidden;
 }
 
-/* Faint top glow so the empty canvas reads as a lit terminal, not a void. */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse 70% 45% at 50% -10%,
-    rgba(0, 200, 150, 0.05),
-    transparent 70%
-  );
-}
-
-#root {
-  position: relative;
-  z-index: 1;
+/* Slightly larger base on phones so nothing lands below 12px. */
+@media (max-width: 767px) {
+  body {
+    font-size: 15px;
+    line-height: 1.6;
+  }
 }
 
 ::selection {
-  background: rgba(0, 200, 150, 0.28);
+  background: rgba(143, 180, 255, 0.3);
   color: var(--color-ink);
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-up);
+  outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+  border-radius: 4px;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* Every figure lines up. */
+.font-mono,
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------------
+ * Motion. Everything here is transform/opacity and answers a state change.
+ * ------------------------------------------------------------------------ */
+
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes flash-up {
+  0% {
+    background-color: rgba(34, 201, 154, 0.35);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes flash-down {
+  0% {
+    background-color: rgba(255, 92, 108, 0.35);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes rail-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@layer utilities {
+  .animate-shimmer {
+    animation: shimmer 1.4s var(--ease-out-quart) infinite;
+  }
+  .animate-flash-up {
+    animation: flash-up 600ms ease-out;
+  }
+  .animate-flash-down {
+    animation: flash-down 600ms ease-out;
+  }
+  .animate-rail-in {
+    animation: rail-in 260ms var(--ease-out-quart) both;
+  }
+  .animate-slide-in-right {
+    animation: slide-in-right 240ms var(--ease-out-quart) both;
+  }
+  .animate-fade-in {
+    animation: fade-in 200ms ease-out both;
+  }
+  .animate-pulse-dot {
+    animation: pulse-dot 1.6s ease-in-out infinite;
+  }
+  .animate-spin {
+    animation: spin 800ms linear infinite;
+  }
+
+  /* Rows appear with a short slide when they are first inserted. */
+  .row-enter {
+    transition:
+      opacity 200ms ease-out,
+      transform 200ms var(--ease-out-quart);
+    @starting-style {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  .press:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .safe-bottom {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  /* Text quoted verbatim from a filing. */
+  .quote {
+    font-family: var(--font-serif);
+    line-height: 1.65;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -69,121 +238,6 @@ body::before {
   *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
-  }
-}
-
-@layer components {
-  .panel {
-    background: var(--color-surface);
-    border: 1px solid var(--color-edge);
-    border-radius: 3px;
-    padding: 1.25rem;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.03),
-      0 8px 24px rgba(0, 0, 0, 0.35);
-  }
-
-  /* Terminal eyebrow: tracked-out mono micro-label with a status tick. */
-  .eyebrow {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    margin-bottom: 0.875rem;
-    font-family: var(--font-mono);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-  }
-  .eyebrow::before {
-    content: "";
-    width: 6px;
-    height: 6px;
-    flex: none;
-    background: var(--color-up);
-    box-shadow: 0 0 6px rgba(0, 200, 150, 0.7);
-  }
-
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.125rem 0.5rem;
-    border: 1px solid;
-    border-radius: 2px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-  .badge-up {
-    color: var(--color-up);
-    border-color: rgba(0, 200, 150, 0.4);
-    background: rgba(0, 200, 150, 0.08);
-    box-shadow: 0 0 10px rgba(0, 200, 150, 0.12);
-  }
-  .badge-down {
-    color: var(--color-down);
-    border-color: rgba(255, 77, 94, 0.4);
-    background: rgba(255, 77, 94, 0.08);
-    box-shadow: 0 0 10px rgba(255, 77, 94, 0.12);
-  }
-  .badge-warn {
-    color: var(--color-warn);
-    border-color: rgba(240, 180, 41, 0.4);
-    background: rgba(240, 180, 41, 0.08);
-  }
-
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    padding: 0.4375rem 1rem;
-    border: 1px solid var(--color-edge-bright);
-    border-radius: 2px;
-    background: transparent;
-    font-family: var(--font-mono);
-    font-size: 12px;
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-ink);
-    cursor: pointer;
-    transition:
-      border-color 0.15s,
-      background-color 0.15s,
-      box-shadow 0.15s,
-      color 0.15s;
-  }
-  .btn:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-  }
-  .btn-up {
-    color: var(--color-up);
-    border-color: rgba(0, 200, 150, 0.45);
-    background: rgba(0, 200, 150, 0.08);
-  }
-  .btn-up:hover:not(:disabled) {
-    border-color: var(--color-up);
-    background: rgba(0, 200, 150, 0.14);
-    box-shadow: 0 0 14px rgba(0, 200, 150, 0.25);
-  }
-  .btn-down {
-    color: var(--color-down);
-    border-color: rgba(255, 77, 94, 0.45);
-    background: rgba(255, 77, 94, 0.08);
-  }
-  .btn-down:hover:not(:disabled) {
-    border-color: var(--color-down);
-    background: rgba(255, 77, 94, 0.14);
-    box-shadow: 0 0 14px rgba(255, 77, 94, 0.25);
-  }
-  .btn-ghost:hover:not(:disabled) {
-    border-color: var(--color-muted);
-    background: var(--color-surface);
+    animation-iteration-count: 1 !important;
   }
 }
