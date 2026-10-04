@@ -104,6 +104,17 @@ export interface GuardrailResult {
   reason: string;
 }
 
+/** Shape produced by app/ingestion/fmp.py:attach_signals. Every field may be missing. */
+export interface Signals {
+  financial_scores?: { altman_z?: number | null; piotroski?: number | null } | null;
+  last_price?: number | null;
+  analyst_consensus?: { skew?: number | null; n?: number | null } | null;
+  recent_grades?: { firm?: string | null; action?: string | null; to?: string | null }[] | null;
+  price_target?: { consensus?: number | null; upside?: number | null; bullish?: boolean | null } | null;
+  bullish_tail?: boolean | null;
+  [extra: string]: unknown;
+}
+
 export interface Trail {
   ticker: string;
   triggering_diff: { 
@@ -117,7 +128,7 @@ export interface Trail {
     section: string; 
     text: string 
   }[] | null;
-  signals: Record<string, unknown> | null;
+  signals: Signals | null;
   hypothesis: Hypothesis | null;
   critic_verdict: { 
     verdict?: string; 
