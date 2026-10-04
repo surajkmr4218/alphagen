@@ -1,44 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
 import { useApi, type EvalSummary } from "../lib/api";
+import { ratioPct } from "../lib/format";
+import { Skeleton } from "./ui/Skeleton";
+import { Stat } from "./ui/Stat";
 
-const pct = (v: number | null) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
+const signTone = (v: number | null) => (v == null ? "ink" : v > 0 ? "up" : v < 0 ? "down" : "ink");
 
-// Live performance computed from resolved Outcomes (reconciliation job, Session 5).
+/** Realised performance from reconciled outcomes, measured against SPY. */
 export function EvalPanel() {
   const api = useApi();
-  const { data: s } = useQuery({ 
-    queryKey: ["eval"], 
-    queryFn: () => api<EvalSummary>("/eval/summary") 
+  const { data: s, isLoading } = useQuery({
+    queryKey: ["eval"],
+    queryFn: () => api<EvalSummary>("/eval/summary"),
   });
 
-  const rows: [string, string][] = s
-    ? [
-        ["Resolved trades", String(s.n_resolved)],
-        ["Awaiting horizon", String(s.n_pending)],
-        ["Hit rate", pct(s.hit_rate)],
-        ["Avg return", pct(s.avg_return)],
-        ["Avg excess vs SPY", pct(s.avg_excess_vs_spy)],
-      ]
-    : [];
-
   return (
-    <section className="panel">
-      <h3 className="eyebrow">Performance</h3>
-      {!s ? (
-        <p className="text-sm text-faint">Loading…</p>
+    <section className="flex flex-col gap-3" aria-labelledby="perf-h">
+      <h2 id="perf-h" className="text-[13px] font-medium text-ink">Performance</h2>
+      {isLoading || !s ? (
+        <div className="grid grid-cols-3 gap-3 lg:grid-cols-2">
+          {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-11" />)}
+        </div>
       ) : (
-        <table className="w-full text-sm">
-          <tbody>
-            {rows.map(([k, v]) => (
-              <tr key={k} className="border-b border-edge/70 last:border-0">
-                <td className="py-2 text-[13px] text-muted">{k}</td>
-                <td className="py-2 text-right font-mono text-[15px] font-medium tabular-nums text-ink">
-                  {v}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <dl className="grid grid-cols-3 gap-x-3 gap-y-4 lg:grid-cols-2">
+          <Stat label="Resolved trades" value={s.n_resolved} />
+          <Stat label="Awaiting horizon" value={s.n_pending} />
+          <Stat label="Hit rate" value={ratioPct(s.hit_rate)} tone={signTone(s.hit_rate == null ? null : s.hit_rate - 0.5)} />
+          <Stat label="Avg return" value={ratioPct(s.avg_return)} tone={signTone(s.avg_return)} />
+          <Stat label="Avg excess vs SPY" value={ratioPct(s.avg_excess_vs_spy)} tone={signTone(s.avg_excess_vs_spy)} />
+        </dl>
       )}
     </section>
   );

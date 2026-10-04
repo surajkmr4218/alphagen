@@ -1,83 +1,69 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronRight } from "lucide-react";
 import { useApi, type QueueItem } from "../lib/api";
+import { usd } from "../lib/format";
+import { Badge } from "./ui/Badge";
+import { EmptyState } from "./ui/EmptyState";
+import { Skeleton } from "./ui/Skeleton";
 
-// Owner-only: the parent component must not render this for public roles.
-export function ApprovalQueue() {
+/**
+ * Owner-only. Lists what is waiting for a decision; the decision itself is made in
+ * the DecisionBar under the trail so there is one place to act.
+ */
+export function ApprovalQueue({ selectedId, onSelect }: { selectedId: string | null | undefined; onSelect: (id: string) => void }) {
   const api = useApi();
-  const qc = useQueryClient();
-  const { data } = useQuery({ 
-    queryKey: ["queue"], 
-    queryFn: () => api<QueueItem[]>("/owner/queue") 
-  });
-  const act = useMutation({
-    mutationFn: (v: { id: string; action: "approve" | "reject" }) =>
-      api(`/owner/${v.action}/${v.id}`, { method: "POST" }),
-    // onSettled, not onSuccess: an approve can flip the human_decision state in 
-    // the database and then fail during order execution -> UI must refetch on error too.
-    onSettled: () =>
-      Promise.all([
-        qc.invalidateQueries({ queryKey: ["queue"] }),
-        qc.invalidateQueries({ queryKey: ["decisions"] }),
-        qc.invalidateQueries({ queryKey: ["trail"] }),
-        qc.invalidateQueries({ queryKey: ["account"] }),
-        qc.invalidateQueries({ queryKey: ["eval"] }),
-      ]),
+  const { data, isLoading } = useQuery({
+    queryKey: ["queue"],
+    queryFn: () => api<QueueItem[]>("/owner/queue"),
   });
 
   return (
-    <section className="panel">
-      <h3 className="eyebrow">Approval queue</h3>
-      {act.isPending && <p className="text-xs text-faint">Placing order — this can take ~30s…</p>}
-      {act.isError && (
-        <p className="mb-2 text-xs leading-relaxed" style={{ color: "var(--color-down)" }}>
-          Order action failed: {act.error instanceof Error ? act.error.message : String(act.error)}
-          {" "}Check the dashboard below for the order's actual state.
-        </p>
+    <section className="flex flex-col gap-3" aria-labelledby="queue-h">
+      <div className="flex items-baseline justify-between">
+        <h2 id="queue-h" className="text-[13px] font-medium text-ink">Awaiting your call</h2>
+        {data && data.length > 0 && <span className="font-mono text-xs text-accent">{data.length}</span>}
+      </div>
+      {isLoading ? (
+        <Skeleton className="h-16" />
+      ) : !data?.length ? (
+        <EmptyState>Nothing to approve right now.</EmptyState>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {data.map((q) => {
+            const active = q.decision_id === selectedId;
+            return (
+              <li key={q.decision_id} className="row-enter">
+                <button
+                  type="button"
+                  onClick={() => onSelect(q.decision_id)}
+                  aria-current={active ? "true" : undefined}
+                  className={`flex w-full items-center gap-3 rounded-md border px-3 py-2.5 text-left transition-colors duration-150 ${
+                    active ? "border-accent/50 bg-inset" : "border-edge bg-inset/40 hover:border-edge-bright hover:bg-inset"
+                  }`}
+                >
+                  <span className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="flex items-center gap-2">
+                      <span className="font-mono text-[15px] font-medium text-ink">{q.ticker}</span>
+                      {q.hypothesis.size_usd != null && <span className="font-mono text-xs text-muted">{usd(q.hypothesis.size_usd)}</span>}
+                      {q.hypothesis.confidence != null && (
+                        <span className="font-mono text-xs text-faint">{Math.round(q.hypothesis.confidence * 100)}% conf</span>
+                      )}
+                    </span>
+                    {q.critic_verdict?.verdict && (
+                      <span>
+                        <Badge tone={q.critic_verdict.verdict === "accept" ? "up" : "down"} glyph={q.critic_verdict.verdict === "accept" ? "check" : "x"}>
+                          Critic: {q.critic_verdict.verdict}
+                        </Badge>
+                      </span>
+                    )}
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-faint" aria-hidden />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       )}
-      {!data?.length && <p className="text-sm text-faint">No pending approvals.</p>}
-      {(data ?? []).map((q) => (
-        <div
-          key={q.decision_id}
-          className="mb-3 rounded-[2px] border border-edge-bright bg-inset p-3 last:mb-0"
-        >
-          <div className="flex items-baseline justify-between gap-2">
-            <b className="font-mono text-sm font-semibold text-ink">{q.ticker}</b>
-            <span className="font-mono text-xs tabular-nums text-muted">
-              ${q.hypothesis.size_usd}
-              {q.hypothesis.confidence != null && <> · conf {(q.hypothesis.confidence * 100).toFixed(0)}%</>}
-            </span>
-          </div>
-          <p className="my-2.5 text-[13px] leading-relaxed text-muted">{q.hypothesis.rationale}</p>
-          {/* The critic is advisory but show its take so the human decides with its information. */}
-          {q.critic_verdict?.verdict && (
-            <div className="mb-2.5">
-              <span className={`badge ${q.critic_verdict.verdict === "accept" ? "badge-up" : "badge-down"}`}>
-                critic: {q.critic_verdict.verdict}
-              </span>
-              {q.critic_verdict.verdict !== "accept" &&
-                (q.critic_verdict.reasons ?? []).map((r, i) => (
-                  <p key={i} className="mt-1.5 text-xs leading-relaxed text-faint">— {r}</p>
-                ))}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <button
-              className="btn btn-up flex-1"
-              disabled={act.isPending}
-              onClick={() => act.mutate({ id: q.decision_id, action: "approve" })}
-            >
-              Approve &amp; place
-            </button>
-            <button
-              className="btn btn-down"
-              disabled={act.isPending}
-              onClick={() => act.mutate({ id: q.decision_id, action: "reject" })}
-            >
-              Reject
-            </button>
-          </div>
-        </div>
-      ))}
     </section>
   );
 }

@@ -1,18 +1,21 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Play } from "lucide-react";
 import { ApiError, useApi, type NewRunResponse, type RunStatus } from "../lib/api";
+import { Badge } from "./ui/Badge";
+import { Button } from "./ui/Button";
 
-// makes sure the string is 1 to 5 uppercase letters
+// 1 to 5 uppercase letters.
 const TICKER_RE = /^[A-Z]{1,5}$/;
 
-// Owner-only: the parent Dashboard omponent must not render this for public roles.
-// Note the destructuring of props into onSelect which re-renders parent Dashboard component.
+// Owner-only: the parent must not render this for public roles.
 export function NewTradeForm({ onSelect }: { onSelect: (decisionId: string) => void }) {
   const api = useApi();
   const qc = useQueryClient();
+  const inputId = useId();
   const [ticker, setTicker] = useState("");
-  const [note, setNote] = useState<string | null>(null);
-  const [watching, setWatching] = useState<string | null>(null); // decision_id that's being polled
+  const [note, setNote] = useState<{ text: string; tone: "error" | "info" } | null>(null);
+  const [watching, setWatching] = useState<string | null>(null); // decision_id being polled
 
   const refresh = () =>
     Promise.all([
@@ -21,14 +24,14 @@ export function NewTradeForm({ onSelect }: { onSelect: (decisionId: string) => v
       qc.invalidateQueries({ queryKey: ["trail"] }),
     ]);
 
-  // useQuery used to poll the submitted run until it lands, then refresh the lists and stop.
+  // Poll the submitted run until it lands, then refresh the lists and stop.
   useQuery({
     queryKey: ["run", watching],
     queryFn: async () => {
       const s = await api<RunStatus>(`/owner/runs/${watching}`);
       if (s.status !== "running") {
         setWatching(null);
-        setNote(s.status === "failed" ? `Run failed: ${s.reason ?? "unknown error"}` : null);
+        setNote(s.status === "failed" ? { text: `Run failed: ${s.reason ?? "unknown error"}`, tone: "error" } : null);
         await refresh();
       }
       return s;
@@ -39,10 +42,7 @@ export function NewTradeForm({ onSelect }: { onSelect: (decisionId: string) => v
 
   const submit = useMutation({
     mutationFn: (t: string) =>
-      api<NewRunResponse>("/owner/hypotheses", {
-        method: "POST",
-        body: JSON.stringify({ ticker: t }),
-      }),
+      api<NewRunResponse>("/owner/hypotheses", { method: "POST", body: JSON.stringify({ ticker: t }) }),
     onSuccess: async (r) => {
       setTicker("");
       setNote(null);
@@ -52,50 +52,65 @@ export function NewTradeForm({ onSelect }: { onSelect: (decisionId: string) => v
     },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 409) {
-        // A run for this ticker is already live so jump to its trail instead of erroring.
+        // A run for this ticker is already live: jump to its trail instead of erroring.
         const detail = (err.body as { detail?: { decision_id?: string } })?.detail;
         if (detail?.decision_id) {
           onSelect(detail.decision_id);
-          setNote("Already running — showing the existing run.");
+          setNote({ text: "Already running. Showing the existing run.", tone: "info" });
           return;
         }
       }
-      setNote(err instanceof ApiError && err.status === 422
-        ? "Tickers are 1–5 letters."
-        : "Could not submit — try again.");
+      setNote({
+        text: err instanceof ApiError && err.status === 422 ? "Tickers are 1 to 5 letters." : "Could not submit. Try again.",
+        tone: "error",
+      });
     },
   });
 
   const valid = TICKER_RE.test(ticker);
 
   return (
-    <section className="panel">
-      <h3 className="eyebrow">New trade</h3>
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          {/* e.preventDefault() stops the browser's native form submission (which would reload the page) */}
-          e.preventDefault();
-          if (valid && !submit.isPending) submit.mutate(ticker);
-        }}
-      >
+    <form
+      className="flex flex-col gap-2"
+      onSubmit={(e) => {
+        e.preventDefault(); // keep the browser from reloading the page
+        if (valid && !submit.isPending) submit.mutate(ticker);
+      }}
+    >
+      <label htmlFor={inputId} className="text-[13px] font-medium text-ink">
+        Run a ticker
+      </label>
+      <div className="flex gap-2">
         <input
+          id={inputId}
           value={ticker}
           onChange={(e) => setTicker(e.target.value.toUpperCase().slice(0, 5))}
-          placeholder="TICKER"
-          aria-label="Ticker symbol"
-          className="w-full min-w-0 rounded-[2px] border border-edge bg-inset px-2.5 py-1.5
-                     font-mono text-sm uppercase tracking-wider text-ink
-                     placeholder:text-faint focus:border-edge-bright focus:outline-none"
+          placeholder="MSFT"
+          autoComplete="off"
+          autoCapitalize="characters"
+          spellCheck={false}
+          inputMode="text"
+          aria-describedby={`${inputId}-help`}
+          aria-invalid={note?.tone === "error" || undefined}
+          className="h-10 w-full min-w-0 rounded-md border border-edge bg-inset px-3 font-mono text-[15px] uppercase text-ink
+                     placeholder:normal-case placeholder:text-faint transition-colors duration-150
+                     hover:border-edge-bright focus:border-accent focus:outline-none pointer-coarse:h-11"
         />
-        <button className="btn btn-up" disabled={!valid || submit.isPending}>
-          {submit.isPending ? "…" : "Run"}
-        </button>
-      </form>
+        <Button type="submit" variant="primary" loading={submit.isPending} disabled={!valid} icon={<Play className="h-4 w-4" aria-hidden />}>
+          Run
+        </Button>
+      </div>
+      <p id={`${inputId}-help`} className="text-xs text-faint">
+        1 to 5 letters. Runs the full pipeline, which takes a few minutes.
+      </p>
       {watching && (
-        <p className="mt-2 text-xs text-warn">Analyzing — this can take a few minutes.</p>
+        <Badge tone="warn" glyph="dot" pulse className="self-start">Analyzing</Badge>
       )}
-      {note && <p className="mt-2 text-xs text-muted">{note}</p>}
-    </section>
+      {note && (
+        <p role={note.tone === "error" ? "alert" : "status"} className={`text-xs ${note.tone === "error" ? "text-down" : "text-muted"}`}>
+          {note.text}
+        </p>
+      )}
+    </form>
   );
 }
